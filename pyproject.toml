@@ -1,0 +1,20 @@
+[project]
+name = "voxbot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "boonhapus", email = "me@boonhap.us" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "attrs>=26.1.0",
+    "cyclopts>=4.10.1",
+    "discord-py>=2.7.1",
+    "mistralai>=2.1.3",
+    "structlog>=25.5.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
