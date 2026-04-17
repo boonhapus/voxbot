@@ -1,146 +1,171 @@
-from typing import Annotated, Optional
 import base64 as b64
 import io
 import logging
 import random
 import time
+from pathlib import Path
+from typing import Annotated
 
-from discord.ext import commands, tasks
-from mistralai.client import Mistral
 import attrs
 import cyclopts
 import discord
 import dotenv
 import structlog
+from discord.ext import commands, tasks
+from mistralai.client import Mistral
 
-type GuildIdT = Annotated[int, "The Guild ID."]
+dotenv.load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+type GuildIdT = int
+
 LOGGER = structlog.get_logger("voxtral")
 
-# ── Configuration ────────────────────────────────────────────────────────────
+VOICES = ["sad", "frustrated", "excited", "confident", "cheerful", "angry"]
+VOICE_PREFIX = "en_paul_"
+
+ALLOWED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus"}
+
 
 @attrs.define(frozen=True, kw_only=True)
 class VoxBotConfig:
-    """Configuration for the bot."""
     discord_token: str
     command_prefix: str = "!"
     mistral_api_key: str
-    mistral_default_voice: str = "en_paul_excited"
     mistral_default_model: str = "voxtral-mini-tts-2603"
-    """Train @ console.mistral.ai, Admin @ admin.mistral.ai"""
 
-# ── Cogs ─────────────────────────────────────────────────────────────────────
 
 class VoiceCog(commands.Cog):
-
     def __init__(self, bot: VoxBot) -> None:
         self.bot = bot
 
-    # ── COMMANDS ─────────────────────────────────────────────────────────────
+    @commands.command(name="trainvoice")
+    async def _trainvoice(self, ctx: commands.Context) -> None:
+        if not ctx.message.attachments:
+            await ctx.send("❌ Attach an audio file to train a voice.")
+            return
+
+        attachment = ctx.message.attachments[0]
+        ext = Path(attachment.filename).suffix.lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            await ctx.send(
+                f"❌ Unsupported format. Use: {', '.join(ALLOWED_EXTENSIONS)}"
+            )
+            return
+
+        voice_name = Path(attachment.filename).stem
+        if not voice_name.replace("_", "").replace("-", "").isalnum():
+            await ctx.send("❌ Filename must be alphanumeric (underscores/hyphens OK).")
+            return
+
+        await ctx.send(f"🎤 Training voice `{voice_name}`... this may take a moment.")
+
+        try:
+            audio_bytes = await attachment.read()
+            audio_b64 = b64.b64encode(audio_bytes).decode()
+        except Exception as err:
+            await LOGGER.aerror("voice_download_failed", error=str(err))
+            await ctx.send("⚠️ Failed to download audio file.")
+            return
+
+        try:
+            voice = await self.bot.mistral.audio.voices.create_async(
+                name=voice_name,
+                sample_audio=audio_b64,
+                sample_filename=attachment.filename,
+            )
+        except Exception as err:
+            await LOGGER.aerror("voice_train_failed", error=str(err), name=voice_name)
+            await ctx.send("⚠️ Voice training failed. Check logs.")
+            return
+
+        self.bot._custom_voices[voice_name] = voice.id
+        await ctx.send(
+            f"✅ Voice `{voice_name}` trained! Use it with: `!speak --voice {voice_name} message`"
+        )
+        await ctx.message.delete()
 
     @commands.command(name="speak")
-    async def _speak(self, ctx: commands.Context, *, message: str = "woof! woofwoof! ..sigh..") -> None:
-        """Convert text to speech and play it in the author's voice channel."""
+    async def _speak(
+        self,
+        ctx: commands.Context,
+        voice: str | None = None,
+        *,
+        message: str = "woof! woofwoof! ...",
+    ) -> None:
         if getattr(ctx.author, "voice", None) is None:
             await ctx.send("❌ You must be in a voice channel to use this command.")
             return
-        
-        assert isinstance(ctx.author, discord.Member), "Author is not a discord.Member"
-        assert ctx.author.voice is not None, "Author is not in a voice channel."
 
-        voice = await self.bot.ensure_voice(voice=ctx.voice_client, channel=ctx.author.voice.channel)
+        assert isinstance(ctx.author, discord.Member)
+        assert ctx.author.voice is not None
 
-        await LOGGER.ainfo("tts_request", author=ctx.author.name, length=len(message))
+        if voice:
+            voice_id = self.bot._custom_voices.get(voice)
+            if not voice_id:
+                available = ", ".join(self.bot._custom_voices.keys()) or "none"
+                await ctx.send(f"❌ Unknown voice `{voice}`. Available: {available}")
+                return
+        else:
+            voice_id = f"{VOICE_PREFIX}{random.choice(VOICES)}"
+
+        await LOGGER.ainfo(
+            "tts_request", author=ctx.author.name, length=len(message), voice=voice_id
+        )
+
+        voice_client = await self.bot.ensure_voice(
+            voice=ctx.voice_client, channel=ctx.author.voice.channel
+        )
 
         try:
-            r = await self.bot.mistral.audio.speech.complete_async(
+            tts_response = await self.bot.mistral.audio.speech.complete_async(
                 model=self.bot.config.mistral_default_model,
                 input=message,
-                voice_id=f"en_paul_{random.choice(['sad', 'frustrated', 'excited', 'confident', 'cheerful', 'angry'])}",
+                voice_id=voice_id,
                 response_format="mp3",
             )
-
-            if voice.is_playing():
-                voice.stop()
-
-            voice.play(
-                discord.FFmpegPCMAudio(io.BytesIO(b64.b64decode(r.audio_data)), pipe=True),
-                after=lambda e: LOGGER.error("playback_error", error=str(e)),
-            )
-
-            await ctx.message.add_reaction("🎙️")
-
         except Exception as err:
             await LOGGER.aerror("tts_failed", error=str(err))
             await ctx.send("⚠️ Failed to generate speech. Check logs for details.")
+            return
 
-# ── Bot ──────────────────────────────────────────────────────────────────────
+        if voice_client.is_playing():
+            voice_client.stop()
+
+        audio_bytes = b64.b64decode(tts_response.audio_data)
+        voice_client.play(
+            discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True),
+            after=lambda e: LOGGER.error("playback_error", error=str(e)) if e else None,
+        )
+
+        await ctx.message.delete()
+
 
 class VoxBot(commands.Bot):
-    """A TTS / voice cloning discord bot."""
-
     def __init__(self, config: VoxBotConfig) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
-        # intents.presences = True
-        # intents.members = True
         super().__init__(command_prefix=config.command_prefix, intents=intents)
 
         self._last_active: dict[GuildIdT, float] = {}
+        self._custom_voices: dict[str, str] = {}
         self.config = config
         self.mistral = Mistral(api_key=config.mistral_api_key)
 
-    # ── EVENT LISTENERS ──────────────────────────────────────────────────────
-
     async def setup_hook(self) -> None:
-        """
-        Perform setup after loggin, but before connecting to the Websocket.
-
-        This is only called once, in login(), and will be called before any events are
-        dispatched, making it a better solution than doing such setup in the on_ready()
-        event.
-        
-        Further reading:
-          https://discordpy.readthedocs.io/en/stable/ext/commands/api.html#discord.ext.commands.Bot.setup_hook
-        """
-        # ADD ALL BOT COMMANDS.
         await self.add_cog(VoiceCog(bot=self))
-
-        # START THE BACKGROUND TASKS.
         self.inactivity_watchdog.start()
-
-        # GO. :~)
         await LOGGER.ainfo("bot_initializing", version="2026.3.27")
 
     async def on_ready(self) -> None:
-        """
-        Called when the bot is done preparing the data received from Discord.
-
-        Further reading:
-          https://discordpy.readthedocs.io/en/latest/api.html#discord.on_ready
-        """
         await LOGGER.ainfo("bot_online", user=str(self.user), guilds=len(self.guilds))
-    
+
     async def on_message(self, message: discord.Message) -> None:
-        """
-        Debugging.
-        """
         if message.author == self.user:
             return
-        
-        await LOGGER.ainfo(
-            "message_received", 
-            author=str(message.author), 
-            content=f"'{message.content}'",
-            length=len(message.content)
-        )
-
         await self.process_commands(message)
-
-    # ── INTERNALS ────────────────────────────────────────────────────────────
 
     @tasks.loop(seconds=15.0)
     async def inactivity_watchdog(self) -> None:
-        """Leave the last known voice channel after some inactivity."""
         ONE_MINUTE = 60.0
         now = time.monotonic()
 
@@ -152,34 +177,32 @@ class VoxBot(commands.Bot):
                 continue
 
             if (idle := now - self._last_active.get(voice.guild.id, now)) >= ONE_MINUTE:
-                await LOGGER.ainfo("idle_disconnect", guild=voice.guild.name, idle_for=round(idle))
+                await LOGGER.ainfo(
+                    "idle_disconnect", guild=voice.guild.name, idle_for=round(idle)
+                )
                 self._last_active.pop(voice.guild.id, None)
                 await voice.disconnect()
 
     @inactivity_watchdog.before_loop
     async def _before_inactivity_watchdog(self) -> None:
-        """Wait until the bot is ready."""
         await self.wait_until_ready()
 
-    # ── HELPERS ──────────────────────────────────────────────────────────────
-
-    async def ensure_voice(self, voice: discord.VoiceClient | None, channel: discord.VoiceChannel) -> discord.VoiceClient:
-        """Join the channel if you're not already in it."""
+    async def ensure_voice(
+        self, voice: discord.VoiceClient | None, channel: discord.VoiceChannel
+    ) -> discord.VoiceClient:
         if voice is None:
             voice = await channel.connect()
-
         elif voice.channel != channel:
             await voice.move_to(channel)
 
-        # REGISTER THIS CHANNEL
         self._last_active[voice.guild.id] = time.monotonic()
-
         return voice
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 cli = cyclopts.App(help="Voxtral TTS Discord Runner")
+
 
 @cli.default
 def start_bot(
@@ -193,7 +216,6 @@ def start_bot(
         discord_token=discord_token,
         command_prefix=prefix,
         mistral_api_key=mistral_api_key,
-        mistral_default_voice=voice,
     )
 
     try:
@@ -211,9 +233,11 @@ def start_bot(
         LOGGER.exception("error")
         return 1
 
+
 # ── SCRIPT ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    dotenv.load_dotenv()
 
     # 1. This is the "Final Output" formatter
     # It takes the data and turns it into the pretty console lines you like
@@ -248,7 +272,5 @@ if __name__ == "__main__":
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
-
-    dotenv.load_dotenv()
 
     raise SystemExit(cli())
