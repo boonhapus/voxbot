@@ -1,9 +1,8 @@
 import logging
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_VAR, TypeVar
 
 import cyclopts
-import dotenv
 import hikari
 import structlog
 
@@ -12,23 +11,22 @@ import hikariwave
 
 from voxbot.model import Config
 from voxbot.model import VoxModel
-from voxbot.model import LOGGER
+from voxbot.model import _LOGGER
 
-dotenv.load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-
-_model: VoxModel | None = None
+T = TypeVar("T")
 
 
-async def on_starting(event: hikari.StartingEvent) -> None:
-    global _model
-    if _model:
-        _model._log.info("bot_starting", version="2026.4.17")
+class Client(crescent.Client[hikari.GatewayBot, VoxModel]):
+    async def start(self, intents: hikari.Intents) -> None:
+        self.bot.event_manager.subscribe(hikari.StartingEvent, self._on_starting)
+        self.bot.event_manager.subscribe(hikari.StartedEvent, self._on_started)
+        await super().start(intents)
 
+    async def _on_starting(self, event: hikari.StartingEvent) -> None:
+        _LOGGER.info("bot_starting", version="2026.4.17")
 
-async def on_started(event: hikari.StartedEvent) -> None:
-    global _model
-    if _model:
-        _model._log.info(
+    async def _on_started(self, event: hikari.StartedEvent) -> None:
+        _LOGGER.info(
             "bot_online",
             user=str(event.app.get_me()),
             guilds=len(event.app.guilds),
@@ -43,33 +41,31 @@ def main(
     token: Annotated[str, cyclopts.Parameter(env_var="DISCORD_TOKEN")],
     mistral_api_key: Annotated[str, cyclopts.Parameter(env_var="MISTRAL_API_KEY")],
 ) -> int:
-    global _model
+    import dotenv
+
+    dotenv.load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
     config = Config(token=token, mistral_api_key=mistral_api_key)
     model = VoxModel(config)
-    _model = model
 
     intents = hikari.Intents.GUILD_VOICE_STATES | hikari.Intents.GUILD_MESSAGES
     bot = hikari.GatewayBot(token=token, intents=intents)
     model.voice_client = hikariwave.VoiceClient(bot)
 
-    client = crescent.Client(bot, model)
+    client = Client(bot, model)
     client.plugins.load_folder("voxbot.plugins")
 
-    bot.event_manager.subscribe(hikari.StartingEvent, on_starting)
-    bot.event_manager.subscribe(hikari.StartedEvent, on_started)
-
     setup_logging()
-    model._log.info("starting")
+    _LOGGER.info("starting")
 
     try:
-        bot.run()
+        client.run()
         return 0
     except KeyboardInterrupt:
-        model._log.info("shutdown")
+        _LOGGER.info("shutdown")
         return 0
     except Exception:
-        model._log.exception("error")
+        _LOGGER.exception("error")
         return 1
 
 

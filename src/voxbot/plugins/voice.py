@@ -1,5 +1,4 @@
 import base64 as b64
-import io
 import random
 import time
 from pathlib import Path
@@ -8,6 +7,7 @@ import crescent
 import hikari
 import hikariwave
 
+from voxbot.model import _LOGGER
 from voxbot.model import VoxModel
 
 plugin = crescent.Plugin[hikari.GatewayBot, VoxModel]()
@@ -54,7 +54,7 @@ class TrainVoice:
             audio_bytes = await attachment.read()
             audio_b64_str = b64.b64encode(audio_bytes).decode()
         except Exception as err:
-            plugin.model._log.error("voice_download_failed", error=str(err))
+            _LOGGER.error("voice_download_failed", error=str(err))
             await ctx.edit_response("⚠️ Failed to download audio file.")
             return
 
@@ -65,9 +65,7 @@ class TrainVoice:
                 sample_filename=attachment.filename,
             )
         except Exception as err:
-            plugin.model._log.error(
-                "voice_train_failed", error=str(err), name=voice_name
-            )
+            _LOGGER.error("voice_train_failed", error=str(err), name=voice_name)
             await ctx.edit_response("⚠️ Voice training failed. Check logs.")
             return
 
@@ -107,7 +105,7 @@ class Speak:
         else:
             voice_id = f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
 
-        plugin.model._log.info(
+        _LOGGER.info(
             "tts_request",
             author=member.display_name,
             length=len(self.message),
@@ -122,7 +120,7 @@ class Speak:
                 response_format="mp3",
             )
         except Exception as err:
-            plugin.model._log.error("tts_failed", error=str(err))
+            _LOGGER.error("tts_failed", error=str(err))
             await ctx.respond("⚠️ Failed to generate speech. Check logs for details.")
             return
 
@@ -147,7 +145,7 @@ class Speak:
 
 @plugin.load_hook
 def on_load() -> None:
-    plugin.model._log.info("voice_plugin_loaded")
+    _LOGGER.info("voice_plugin_loaded")
 
 
 @plugin.unload_hook
