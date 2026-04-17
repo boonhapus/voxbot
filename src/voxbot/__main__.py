@@ -1,6 +1,4 @@
 import logging
-from pathlib import Path
-from typing import TYPE_VAR, TypeVar
 
 import cyclopts
 import hikari
@@ -8,12 +6,12 @@ import structlog
 
 import crescent
 import hikariwave
+import dotenv
 
 from voxbot.model import Config
 from voxbot.model import VoxModel
-from voxbot.model import _LOGGER
 
-T = TypeVar("T")
+_LOGGER = structlog.get_logger(__name__)
 
 
 class Client(crescent.Client[hikari.GatewayBot, VoxModel]):
@@ -27,9 +25,7 @@ class Client(crescent.Client[hikari.GatewayBot, VoxModel]):
 
     async def _on_started(self, event: hikari.StartedEvent) -> None:
         _LOGGER.info(
-            "bot_online",
-            user=str(event.app.get_me()),
-            guilds=len(event.app.guilds),
+            "bot_online", user=str(event.app.get_me()), guilds=len(event.app.guilds)
         )
 
 
@@ -41,10 +37,6 @@ def main(
     token: Annotated[str, cyclopts.Parameter(env_var="DISCORD_TOKEN")],
     mistral_api_key: Annotated[str, cyclopts.Parameter(env_var="MISTRAL_API_KEY")],
 ) -> int:
-    import dotenv
-
-    dotenv.load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-
     config = Config(token=token, mistral_api_key=mistral_api_key)
     model = VoxModel(config)
 
@@ -55,18 +47,17 @@ def main(
     client = Client(bot, model)
     client.plugins.load_folder("voxbot.plugins")
 
-    setup_logging()
     _LOGGER.info("starting")
 
     try:
         client.run()
-        return 0
     except KeyboardInterrupt:
         _LOGGER.info("shutdown")
         return 0
     except Exception:
         _LOGGER.exception("error")
         return 1
+    return 0
 
 
 def setup_logging() -> None:
@@ -101,4 +92,7 @@ def setup_logging() -> None:
 
 
 if __name__ == "__main__":
+    dotenv.load_dotenv()
+    setup_logging()
+    _LOGGER.info("initializing")
     raise SystemExit(cli())

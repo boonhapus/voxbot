@@ -4,7 +4,7 @@ from mistralai.client import Mistral
 
 import hikariwave
 
-_LOGGER = structlog.get_logger("voxtral")
+_LOGGER = structlog.get_logger(__name__)
 
 
 @attrs.define(frozen=True, kw_only=True)

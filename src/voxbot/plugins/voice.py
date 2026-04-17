@@ -6,9 +6,11 @@ from pathlib import Path
 import crescent
 import hikari
 import hikariwave
+import structlog
 
-from voxbot.model import _LOGGER
 from voxbot.model import VoxModel
+
+_LOGGER = structlog.get_logger(__name__)
 
 plugin = crescent.Plugin[hikari.GatewayBot, VoxModel]()
 
@@ -21,17 +23,16 @@ VOICE_PREFIX = "en_paul_"
 @crescent.command(name="trainvoice", description="Train a custom TTS voice")
 class TrainVoice:
     async def callback(self, ctx: crescent.Context) -> None:
-        msgs = ctx.messages
-        if not msgs:
-            await ctx.respond("❌ No message with attachment found.")
-            return
+        match ctx.messages:
+            case []:
+                await ctx.respond("❌ No message with attachment found.")
+                return
+            case [msg, *_] if msg.attachments:
+                attachment = msg.attachments[0]
+            case _:
+                await ctx.respond("❌ Attach an audio file to train a voice.")
+                return
 
-        msg = msgs[0]
-        if not msg.attachments:
-            await ctx.respond("❌ Attach an audio file to train a voice.")
-            return
-
-        attachment = msg.attachments[0]
         ext = Path(attachment.filename).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
             await ctx.respond(
@@ -94,16 +95,15 @@ class Speak:
 
         voice_channel_id = voice_state.channel_id
 
-        if self.voice:
-            voice_id = plugin.model.custom_voices.get(self.voice)
-            if not voice_id:
+        match self.voice:
+            case str() as v if vid := plugin.model.custom_voices.get(v):
+                voice_id = vid
+            case str() as v:
                 available = ", ".join(plugin.model.custom_voices.keys()) or "none"
-                await ctx.respond(
-                    f"❌ Unknown voice `{self.voice}`. Available: {available}"
-                )
+                await ctx.respond(f"❌ Unknown voice `{v}`. Available: {available}")
                 return
-        else:
-            voice_id = f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
+            case _:
+                voice_id = f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
 
         _LOGGER.info(
             "tts_request",
