@@ -27,6 +27,12 @@ voxbot = "voxbot.__main__:cli"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.11.0",
-    "ty>=0.0.26",
+    "ruff>=0.11.0"
 ]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.format]
+docstring-code-format = true

@@ -1,18 +1,18 @@
 import base64 as b64
+import pathlib
 import random
 import time
-from pathlib import Path
 
 import crescent
 import hikari
 import hikariwave
 import structlog
 
-from voxbot.model import VoxModel
+from voxbot import model
 
 _LOGGER = structlog.get_logger(__name__)
 
-plugin = crescent.Plugin[hikari.GatewayBot, VoxModel]()
+plugin = crescent.Plugin[hikari.GatewayBot, model.VoxModel]()
 
 ALLOWED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus"}
 DEFAULT_VOICES = ["sad", "frustrated", "excited", "confident", "cheerful", "angry"]
@@ -33,23 +33,17 @@ class TrainVoice:
                 await ctx.respond("❌ Attach an audio file to train a voice.")
                 return
 
-        ext = Path(attachment.filename).suffix.lower()
+        ext = pathlib.Path(attachment.filename).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
-            await ctx.respond(
-                f"❌ Unsupported format. Use: {', '.join(ALLOWED_EXTENSIONS)}"
-            )
+            await ctx.respond(f"❌ Unsupported format. Use: {', '.join(ALLOWED_EXTENSIONS)}")
             return
 
-        voice_name = Path(attachment.filename).stem
+        voice_name = pathlib.Path(attachment.filename).stem
         if not voice_name.replace("_", "").replace("-", "").isalnum():
-            await ctx.respond(
-                "❌ Filename must be alphanumeric (underscores/hyphens OK)."
-            )
+            await ctx.respond("❌ Filename must be alphanumeric (underscores/hyphens OK).")
             return
 
-        await ctx.respond(
-            f"🎤 Training voice `{voice_name}`... this may take a moment."
-        )
+        await ctx.respond(f"🎤 Training voice `{voice_name}`... this may take a moment.")
 
         try:
             audio_bytes = await attachment.read()
