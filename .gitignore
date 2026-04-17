@@ -7,7 +7,11 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
 
 # Secrets
 .env
+
+# Project code
+.nelson/
+.claude/
