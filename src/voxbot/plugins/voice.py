@@ -141,7 +141,7 @@ class VoiceCog(commands.Cog):
 
         try:
             tts_response = await self.model.mistral.audio.speech.complete_async(
-                model=self.model.config.mistral_model,
+                model=self.model.mistral_model,
                 input=message,
                 voice_id=voice_id,
                 response_format="mp3",

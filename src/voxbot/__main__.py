@@ -57,13 +57,11 @@ def main() -> int:
     # Load settings from .env
     app_settings = settings.Settings()
 
-    # Create config and model
-    config = model.Config(
-        discord_token=app_settings.discord_token,
+    # Create model with Mistral config
+    voice_model = model.VoxModel(
         mistral_api_key=app_settings.mistral_api_key,
         mistral_model=app_settings.mistral_model,
     )
-    voice_model = model.VoxModel(config=config)
 
     # Set up bot with intents
     intents = disnake.Intents.GUILD_VOICE_STATES | disnake.Intents.GUILD_MESSAGES

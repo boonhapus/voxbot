@@ -1,8 +1,7 @@
 import json
-import os
 import pathlib
 from mistralai.client import Mistral
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 import structlog
 
 _LOGGER = structlog.get_logger(__name__)
@@ -10,21 +9,12 @@ _LOGGER = structlog.get_logger(__name__)
 DEFAULT_VOICES_FILE = pathlib.Path.home() / ".voxbot" / "voices.json"
 
 
-class Config(BaseModel):
-    """Bot configuration."""
-
-    discord_token: str
-    mistral_api_key: str
-    mistral_model: str = "voxtral-mini-tts-2603"
-    voices_file: pathlib.Path = DEFAULT_VOICES_FILE
-
-    model_config = ConfigDict(frozen=True)
-
-
 class VoxModel(BaseModel):
     """Shared model holding bot state and API clients."""
 
-    config: Config
+    mistral_api_key: str
+    mistral_model: str = "voxtral-mini-tts-2603"
+    voices_file: pathlib.Path = DEFAULT_VOICES_FILE
     mistral: Mistral | None = None
     custom_voices: dict[str, str] = {}
     deleted_voices: set[str] = set()
@@ -36,17 +26,16 @@ class VoxModel(BaseModel):
     @model_validator(mode="after")
     def initialize_mistral(self):
         if self.mistral is None:
-            self.mistral = Mistral(api_key=self.config.mistral_api_key)
+            self.mistral = Mistral(api_key=self.mistral_api_key)
             self._load_voices()
         return self
 
     def _load_voices(self) -> None:
         """Load voice name→ID mappings from disk."""
-        vf = self.config.voices_file
-        if not vf.exists():
+        if not self.voices_file.exists():
             return
         try:
-            with open(vf, "r") as f:
+            with open(self.voices_file, "r") as f:
                 data = json.load(f)
             self.custom_voices.update(data.get("voices", {}))
             self.deleted_voices = set(data.get("deleted", []))
@@ -56,10 +45,9 @@ class VoxModel(BaseModel):
 
     def save_voices(self) -> None:
         """Persist voice name→ID mappings to disk."""
-        vf = self.config.voices_file
-        vf.parent.mkdir(parents=True, exist_ok=True)
+        self.voices_file.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with open(vf, "w") as f:
+            with open(self.voices_file, "w") as f:
                 json.dump(
                     {"voices": self.custom_voices, "deleted": list(self.deleted_voices)},
                     f,
