@@ -4,20 +4,13 @@ import random
 import re
 import time
 
-import crescent
-from crescent.ext import tasks
-import hikari
-import hikariwave
+from disnake import Attachment
+from disnake.ext import commands, tasks
 import structlog
 
 from voxbot import model
 
 _LOGGER = structlog.get_logger(__name__)
-
-plugin = crescent.Plugin[hikari.GatewayBot, model.VoxModel]()
-
-# Command group: /voice <subcommand>
-voice_group = crescent.Group("voice", "TTS voice commands")
 
 ALLOWED_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".opus"}
 DEFAULT_VOICES = ["sad", "frustrated", "excited", "confident", "cheerful", "angry"]
@@ -26,252 +19,221 @@ VOICE_PREFIX = "en_paul_"
 
 VOICE_NAME_RE = re.compile(r"^[\w\-]+$")
 
-
-def _clear_stale_player_task(connection: hikariwave.Connection) -> None:
-    # hikariwave 0.7.0a1 bug: AudioPlayer keeps a reference to the finished
-    # _player_task, so __ensure_loop() short-circuits and play() silently
-    # no-ops on the second call. Drop the dead task to force a fresh loop.
-    # TODO: Remove once hikariwave is updated past 0.7.0a1.
-    player_task = connection.player._player_task
-    if player_task is not None and player_task.done():
-        connection.player._player_task = None
+_SYNC_INTERVAL = 300
+_AUTO_LEAVE_INTERVAL = 60
+_AUTO_LEAVE_THRESHOLD = 300
 
 
-async def _ensure_voice_connection(
-    vc: hikariwave.VoiceClient, guild_id: int, channel_id: int
-) -> hikariwave.Connection:
-    connection = vc.get_connection(guild_id=guild_id)
-    if connection is None:
-        return await vc.connect(guild_id=guild_id, channel_id=channel_id)
-    if connection.channel_id != hikari.Snowflake(channel_id):
-        return await vc.move(channel_id=channel_id, guild_id=guild_id)
-    return connection
+class VoiceCog(commands.Cog):
+    def __init__(self, bot, vox_model: model.VoxModel):
+        self.bot = bot
+        self.model = vox_model
+        self._voice_sync.start()
+        self._auto_leave.start()
 
+    async def _ensure_voice_connection(self, guild_id: int, channel_id: int):
+        """Ensure bot is connected to voice channel."""
+        for vc in self.bot.voice_clients:
+            if vc.guild.id == guild_id:
+                if vc.channel.id != channel_id:
+                    await vc.move_to(self.bot.get_channel(channel_id))
+                return vc
 
-def _resolve_voice(voice: str | None, custom_voices: dict[str, str]) -> str | None:
-    if voice is None:
-        return f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
-    if voice == "Paul":
-        return f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
-    voice_id = custom_voices.get(voice)
-    return voice_id
+        channel = self.bot.get_channel(channel_id)
+        return await channel.connect()
 
+    def _resolve_voice(self, voice: str | None) -> str | None:
+        if voice is None:
+            return f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
+        if voice == "Paul":
+            return f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
+        return self.model.custom_voices.get(voice)
 
-@plugin.include
-@voice_group.child
-@crescent.command(name="train", description="Train a custom TTS voice from an audio file")
-class VoiceTrain:
-    audio = crescent.option(hikari.Attachment, "Audio file to train voice from")
+    async def voice_autocomplete(self, inter, user_input: str):
+        """Autocomplete for voice names."""
+        voices = list(self.model.custom_voices.keys())
+        if "Paul" not in voices:
+            voices.append("Paul")
 
-    async def callback(self, ctx: crescent.Context) -> None:
-        await ctx.defer()
-        attachment = self.audio
-        model_instance = plugin.model
+        if not voices:
+            return ["No voices available"]
 
-        ext = pathlib.Path(attachment.filename).suffix.lower()
+        if user_input:
+            voices = [v for v in voices if user_input.lower() in v.lower()]
+
+        return voices[:25]
+
+    @commands.slash_command(name="voice_train", description="Train a custom TTS voice from an audio file")
+    async def voice_train(self, inter, audio: Attachment):
+        await inter.response.defer()
+
+        ext = pathlib.Path(audio.filename).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
-            await ctx.respond(f"❌ Unsupported format. Use: {', '.join(ALLOWED_EXTENSIONS)}")
+            await inter.edit_original_response(content=f"❌ Unsupported format. Use: {', '.join(ALLOWED_EXTENSIONS)}")
             return
 
-        voice_name = pathlib.Path(attachment.filename).stem
+        voice_name = pathlib.Path(audio.filename).stem
         if not VOICE_NAME_RE.match(voice_name):
-            await ctx.respond("❌ Filename must be alphanumeric (underscores/hyphens OK).")
+            await inter.edit_original_response(content="❌ Filename must be alphanumeric (underscores/hyphens OK).")
             return
 
-        await ctx.respond(f"🎤 Training voice `{voice_name}`... this may take a moment.")
+        await inter.edit_original_response(content=f"🎤 Training voice `{voice_name}`... this may take a moment.")
 
         try:
-            audio_bytes = await attachment.read()
+            audio_bytes = await audio.read()
             audio_b64_str = b64.b64encode(audio_bytes).decode()
         except Exception as err:
             _LOGGER.error("voice_download_failed", error=str(err))
-            await ctx.edit("⚠️ Failed to download audio file.")
+            await inter.edit_original_response(content="⚠️ Failed to download audio file.")
             return
 
         try:
-            voice = await model_instance.mistral.audio.voices.create_async(
+            voice = await self.model.mistral.audio.voices.create_async(
                 name=voice_name,
                 sample_audio=audio_b64_str,
-                sample_filename=attachment.filename,
+                sample_filename=audio.filename,
             )
         except Exception as err:
             _LOGGER.error("voice_train_failed", error=str(err), name=voice_name)
-            await ctx.edit("⚠️ Voice training failed. Check logs.")
+            await inter.edit_original_response(content="⚠️ Voice training failed. Check logs.")
             return
 
-        model_instance.custom_voices[voice_name] = voice.id
-        model_instance.save_voices()
-        await ctx.edit(
-            f"✅ Voice `{voice_name}` trained! Use it with: `/voice speak --voice {voice_name}`"
+        self.model.custom_voices[voice_name] = voice.id
+        self.model.save_voices()
+        await inter.edit_original_response(
+            content=f"✅ Voice `{voice_name}` trained! Use it with: `/voice_speak --voice {voice_name}`"
         )
 
+    @commands.slash_command(name="voice_speak", description="Speak a message in your voice channel")
+    async def voice_speak(
+        self,
+        inter,
+        message: str = commands.Param(default=DEFAULT_MESSAGE, description="Message to speak"),
+        voice: str = commands.Param(default=None, description="Voice to use", autocomplete=voice_autocomplete),
+    ):
+        await inter.response.defer()
 
-async def _voice_autocomplete(
-    ctx: crescent.AutocompleteContext, option: hikari.AutocompleteInteractionOption
-) -> list[tuple[str, str]]:
-    """Autocomplete for voice names: custom voices + 'Paul' preset."""
-    model_instance = plugin.model
-    voices = list(model_instance.custom_voices.keys())
-    # Add 'Paul' as a single option for the preset voices
-    if "Paul" not in voices:
-        voices.append("Paul")
-    
-    if not voices:
-        return [("No voices available", "none")]
-    
-    # Filter by user input
-    user_input = option.value or ""
-    if isinstance(user_input, str) and user_input:
-        voices = [v for v in voices if user_input.lower() in v.lower()]
-    
-    return [(v, v) for v in voices[:25]]  # Discord max 25 choices
-
-
-@plugin.include
-@voice_group.child
-@crescent.command(name="speak", description="Speak a message in your voice channel")
-class VoiceSpeak:
-    message = crescent.option(str, "Message to speak", default=DEFAULT_MESSAGE)
-    voice = crescent.option(str, "Voice to use (leave empty for random)", default=None, autocomplete=_voice_autocomplete)
-
-    async def callback(self, ctx: crescent.Context) -> None:
-        await ctx.defer()
-        user = ctx.user
-        guild_id = ctx.guild_id
+        user = inter.author
+        guild_id = inter.guild_id
         if guild_id is None:
-            await ctx.respond("❌ Must be used in a server.")
+            await inter.edit_original_response(content="❌ Must be used in a server.")
             return
 
-        assert isinstance(ctx.app, hikari.CacheAware)
-        voice_state = ctx.app.cache.get_voice_state(guild_id, user.id)
-        if voice_state is None or voice_state.channel_id is None:
-            states = ctx.app.cache.get_voice_states_view_for_guild(guild_id)
-            _LOGGER.warning(
-                "no_voice_state",
-                user_id=user.id,
-                guild_id=guild_id,
-                cached_states=len(states),
-                cached_user_ids=[int(uid) for uid in states.keys()],
-            )
-            await ctx.respond(
-                "❌ You must be in a voice channel. "
-                "(If you are, the bot may need the `GUILD_VOICE_STATES` intent.)"
-            )
+        guild = inter.guild
+        voice_state = guild.get_member(user.id).voice
+        if voice_state is None or voice_state.channel is None:
+            await inter.edit_original_response(content="❌ You must be in a voice channel.")
             return
 
-        model_instance = plugin.model
-
-        voice_id = _resolve_voice(self.voice, model_instance.custom_voices)
+        voice_id = self._resolve_voice(voice)
         if voice_id is None:
-            available = ", ".join(model_instance.custom_voices.keys()) or "none"
-            await ctx.respond(f"❌ Unknown voice `{self.voice}`. Available: {available}")
+            available = ", ".join(self.model.custom_voices.keys()) or "none"
+            await inter.edit_original_response(content=f"❌ Unknown voice `{voice}`. Available: {available}")
             return
 
         _LOGGER.info(
             "tts_request",
             author=user.display_name,
             guild_id=guild_id,
-            length=len(self.message),
+            length=len(message),
             voice=voice_id,
         )
 
         try:
-            tts_response = await model_instance.mistral.audio.speech.complete_async(
-                model=model_instance.config.mistral_model,
-                input=self.message,
+            tts_response = await self.model.mistral.audio.speech.complete_async(
+                model=self.model.config.mistral_model,
+                input=message,
                 voice_id=voice_id,
                 response_format="mp3",
             )
         except Exception as err:
             _LOGGER.error("tts_failed", error=str(err))
-            await ctx.respond("⚠️ Failed to generate speech. Check logs for details.")
+            await inter.edit_original_response(content="⚠️ Failed to generate speech. Check logs for details.")
             return
-
-        connection = await _ensure_voice_connection(
-            model_instance.voice_client, guild_id, voice_state.channel_id
-        )
-        assert connection is not None
-
-        if connection.player.is_playing:
-            await connection.player.stop()
-
-        _clear_stale_player_task(connection)
-
-        audio_data = b64.b64decode(tts_response.audio_data)
-        source = hikariwave.BufferAudioSource(audio_data)
-        await connection.player.play(source)
-
-        model_instance.last_active[guild_id] = time.monotonic()
-        await ctx.respond("🔊 Playing...")
-
-
-@plugin.include
-@voice_group.child
-@crescent.command(name="delete", description="Delete a custom voice")
-class VoiceDelete:
-    voice = crescent.option(str, "Voice to delete", autocomplete=_voice_autocomplete)
-
-    async def callback(self, ctx: crescent.Context) -> None:
-        await ctx.defer()
-        model_instance = plugin.model
-        voice_name = self.voice
-
-        if voice_name not in model_instance.custom_voices:
-            await ctx.respond(f"❌ Voice `{voice_name}` not found.")
-            return
-
-        voice_id = model_instance.custom_voices[voice_name]
 
         try:
-            await model_instance.mistral.audio.voices.delete_async(voice_id=voice_id)
+            vc = await self._ensure_voice_connection(guild_id, voice_state.channel.id)
         except Exception as err:
-            _LOGGER.error("voice_delete_failed", error=str(err), name=voice_name)
-            await ctx.respond("⚠️ Failed to delete voice from Mistral. Check logs.")
+            _LOGGER.error("voice_connect_failed", error=str(err))
+            await inter.edit_original_response(content="⚠️ Failed to connect to voice channel.")
             return
 
-        del model_instance.custom_voices[voice_name]
-        model_instance.deleted_voices.add(voice_name)
-        model_instance.save_voices()
-        await ctx.respond(f"🗑️ Voice `{voice_name}` deleted.")
+        audio_data = b64.b64decode(tts_response.audio_data)
+
+        try:
+            from disnake.ext.voice import AudioSource
+            source = AudioSource(audio_data)
+            vc.play(source)
+        except Exception as err:
+            _LOGGER.error("audio_play_failed", error=str(err))
+            await inter.edit_original_response(content="⚠️ Failed to play audio.")
+            return
+
+        self.model.last_active[guild_id] = time.monotonic()
+        await inter.edit_original_response(content="🔊 Playing...")
+
+    @commands.slash_command(name="voice_delete", description="Delete a custom voice")
+    async def voice_delete(
+        self,
+        inter,
+        voice: str = commands.Param(description="Voice to delete", autocomplete=voice_autocomplete),
+    ):
+        await inter.response.defer()
+
+        voice_name = voice
+
+        if voice_name not in self.model.custom_voices:
+            await inter.edit_original_response(content=f"❌ Voice `{voice_name}` not found.")
+            return
+
+        voice_id = self.model.custom_voices[voice_name]
+
+        try:
+            await self.model.mistral.audio.voices.delete_async(voice_id=voice_id)
+        except Exception as err:
+            _LOGGER.error("voice_delete_failed", error=str(err), name=voice_name)
+            await inter.edit_original_response(content="⚠️ Failed to delete voice from Mistral. Check logs.")
+            return
+
+        del self.model.custom_voices[voice_name]
+        self.model.deleted_voices.add(voice_name)
+        self.model.save_voices()
+        await inter.edit_original_response(content=f"🗑️ Voice `{voice_name}` deleted.")
+
+    @tasks.loop(seconds=_SYNC_INTERVAL)
+    async def _voice_sync(self) -> None:
+        """Sync voices from Mistral periodically."""
+        await self.model.sync_voices()
+
+    @_voice_sync.before_loop
+    async def before_voice_sync(self):
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(seconds=_AUTO_LEAVE_INTERVAL)
+    async def _auto_leave(self) -> None:
+        """Leave voice channels with no activity in the last 5 minutes."""
+        now = time.monotonic()
+        to_remove = []
+
+        for guild_id, last_time in list(self.model.last_active.items()):
+            if now - last_time > _AUTO_LEAVE_THRESHOLD:
+                for vc in self.bot.voice_clients:
+                    if vc.guild.id == guild_id:
+                        await vc.disconnect()
+                        _LOGGER.info("auto_left_voice", guild_id=guild_id, reason="inactive")
+                        break
+                to_remove.append(guild_id)
+
+        for guild_id in to_remove:
+            del self.model.last_active[guild_id]
+
+    @_auto_leave.before_loop
+    async def before_auto_leave(self):
+        await self.bot.wait_until_ready()
+
+    def cog_load(self):
+        _LOGGER.info("voice_plugin_loaded")
 
 
-_SYNC_INTERVAL = 300  # seconds between voice syncs
-_AUTO_LEAVE_INTERVAL = 60  # check every minute
-_AUTO_LEAVE_THRESHOLD = 300  # 5 minutes in seconds
-
-
-@plugin.include
-@tasks.loop(seconds=_SYNC_INTERVAL)
-async def _voice_sync() -> None:
-    """Sync voices from Mistral periodically."""
-    model_instance = plugin.model
-    await model_instance.sync_voices()
-
-
-@plugin.include
-@tasks.loop(seconds=_AUTO_LEAVE_INTERVAL)
-async def _auto_leave() -> None:
-    """Leave voice channels with no activity in the last 5 minutes."""
-    model_instance = plugin.model
-    vc = model_instance.voice_client
-    if vc is None:
-        return
-
-    now = time.monotonic()
-    to_remove = []
-
-    for guild_id, last_time in list(model_instance.last_active.items()):
-        if now - last_time > _AUTO_LEAVE_THRESHOLD:
-            connection = vc.get_connection(guild_id=guild_id)
-            if connection is not None:
-                await connection.disconnect()
-                _LOGGER.info("auto_left_voice", guild_id=guild_id, reason="inactive")
-            to_remove.append(guild_id)
-
-    for guild_id in to_remove:
-        del model_instance.last_active[guild_id]
-
-
-@plugin.load_hook
-def on_load() -> None:
-    _LOGGER.info("voice_plugin_loaded")
+def setup(bot):
+    bot.add_cog(VoiceCog(bot, bot.vox_model))

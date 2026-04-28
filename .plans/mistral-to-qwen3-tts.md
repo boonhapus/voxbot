@@ -63,9 +63,20 @@ well within the RTX 3060's 12 GB.
 
 ## Phase 1 — Remote Server Setup
 
-### 1.1 OS / Driver prerequisites
+### Choose your OS
 
-Tested on Ubuntu 22.04 LTS. Run as a non-root user with `sudo`.
+| OS | Pros | Cons |
+|---|---|---|
+| **Ubuntu 22.04 LTS** | Native vLLM support, best GPU driver ecosystem | CLI-focused, less familiar to some |
+| **Windows Server 2022** | Familiar UI, good NVIDIA driver support | More RAM overhead, GPU PASSTHROUGH required for WSL/containers |
+
+---
+
+### Ubuntu Server Setup (22.04 LTS)
+
+#### 1.1 OS / Driver prerequisites
+
+Run as a non-root user with `sudo`.
 
 ```bash
 # NVIDIA driver (535+ required for CUDA 12)
@@ -85,7 +96,7 @@ sudo apt install -y python3.11 python3.11-venv python3-pip
 sudo apt install -y ffmpeg
 ```
 
-### 1.2 Create isolated Python environment
+#### 1.2 Create isolated Python environment
 
 ```bash
 python3.11 -m venv ~/vllm-omni-env
@@ -93,7 +104,7 @@ source ~/vllm-omni-env/bin/activate
 pip install --upgrade pip
 ```
 
-### 1.3 Install vLLM-Omni
+#### 1.3 Install vLLM-Omni
 
 Install from source (recommended — the package moves fast):
 
@@ -116,7 +127,7 @@ python -c "import vllm; print(vllm.__version__)"
 vllm --version
 ```
 
-### 1.4 Download the model
+#### 1.4 Download the model
 
 The model is pulled from HuggingFace on first `vllm serve`. Pre-download to
 avoid timeout on first request:
@@ -129,7 +140,7 @@ snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base')
 "
 ```
 
-### 1.5 Start the TTS server
+#### 1.5 Start the TTS server
 
 ```bash
 vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-Base \
@@ -152,7 +163,7 @@ curl http://localhost:8091/health
 # → {"status":"ok"}
 ```
 
-### 1.6 Run as a systemd service (production)
+#### 1.6 Run as a systemd service (production)
 
 ```ini
 # /etc/systemd/system/qwen3-tts.service
@@ -180,7 +191,7 @@ sudo systemctl enable --now qwen3-tts
 sudo journalctl -fu qwen3-tts
 ```
 
-### 1.7 Network access
+#### 1.7 Network access
 
 If the server and bot machine are on the same LAN, no additional config needed.
 The bot connects to `http://<server-ip>:8091`.
@@ -197,6 +208,131 @@ server {
     }
 }
 ```
+
+---
+
+### Windows Server Setup (2022)
+
+#### 1.1 OS / Driver prerequisites
+
+Install Windows Server 2022. Enable SSH via PowerShell:
+
+```powershell
+Install-WindowsFeature -Name OpenSSH.Server
+```
+
+Install NVIDIA drivers (535+). Download from NVIDIA Enterprise.
+
+#### 1.2 Install Python 3.11+
+
+Download from python.org or use winget:
+
+```powershell
+winget install Python.Python.3.11
+```
+
+Restart shell. Verify:
+
+```powershell
+python --version
+```
+
+#### 1.3 Install ffmpeg
+
+```powershell
+winget install FFmpeg.FFmpeg
+# Restart PATH
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+```
+
+#### 1.4 Create isolated Python environment
+
+```powershell
+python -m venv C:\vllm-omni-env
+C:\vllm-omni-env\Scripts\Activate.ps1
+pip install --upgrade pip
+```
+
+#### 1.5 Install vLLM-Omni
+
+```powershell
+git clone https://github.com/vllm-project/vllm-omni.git
+cd vllm-omni
+pip install -e .
+```
+
+Verify:
+
+```powershell
+python -c "import vllm; print(vllm.__version__)"
+vllm --version
+```
+
+#### 1.6 Download the model
+
+```powershell
+pip install huggingface_hub
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base')
+"
+```
+
+#### 1.7 Start the TTS server
+
+```powershell
+vllm serve Qwen/Qwen3-TTS-12Hz-1.7B-Base `
+  --omni `
+  --port 8091 `
+  --host 0.0.0.0 `
+  --trust-remote-code `
+  --enforce-eager
+```
+
+Verify:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:8091/health
+```
+
+#### 1.8 Run as a Windows Service (production)
+
+Use NSSM (Non-Sucking Service Manager) or create a service via PowerShell:
+
+```powershell
+# Create the service
+$binaryPath = "C:\vllm-omni-env\Scripts\python.exe"
+$scriptPath = "C:\vllm-omni-env\Scripts\vllm"
+$args = "serve Qwen/Qwen3-TTS-12Hz-1.7B-Base --omni --port 8091 --host 0.0.0.0 --trust-remote-code --enforce-eager"
+
+New-Service -Name Qwen3-TTS `
+  -BinaryPathName "$binaryPath $scriptPath $args" `
+  -DisplayName "Qwen3-TTS vLLM-Omni" `
+  -StartupType Automatic
+
+Start-Service Qwen3-TTS
+```
+
+Or use NSSM for better process management:
+
+```powershell
+# Download nssm, then:
+nssm install Qwen3-TTS C:\vllm-omni-env\Scripts\python.exe C:\vllm-omni-env\Scripts\vllm "serve Qwen/Qwen3-TTS-12Hz-1.7B-Base --omni --port 8091 --host 0.0.0.0 --trust-remote-code --enforce-eager"
+nssm start Qwen3-TTS
+```
+
+#### 1.9 Firewall
+
+Open port 8091:
+
+```powershell
+New-NetFirewallRule -DisplayName "Qwen3-TTS" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8091
+```
+
+#### 1.10 Network access
+
+Same as Ubuntu — bot connects to `http://<server-ip>:8091`. For internet
+exposure, use IIS with URL Rewrite + ARR or nginx under WSL.
 
 ---
 
@@ -228,7 +364,7 @@ Content-Type: application/json
 Raw audio bytes in the requested format (`mp3`, `wav`, `opus`, etc.).
 No base64 wrapping — unlike Mistral's `audio_data` field.
 
-### Quick smoke test
+### Quick smoke test (Ubuntu)
 
 ```bash
 REF_B64=$(base64 -w0 /path/to/reference.wav)
@@ -249,6 +385,31 @@ curl http://<server-ip>:8091/v1/audio/speech \
 ffplay test.mp3
 ```
 
+### Quick smoke test (Windows)
+
+```powershell
+$refBytes = [System.IO.File]::ReadAllBytes("C:\path\to\reference.wav")
+$refB64 = [Convert]::ToBase64String($refBytes)
+
+$body = @{
+    model = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+    input = "Hello from the other side."
+    voice = "custom"
+    response_format = "mp3"
+    task_type = "Base"
+    ref_audio = "data:audio/wav;base64,$refB64"
+    ref_text = "What the speaker says in the clip."
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8091/v1/audio/speech" `
+  -Method POST `
+  -Body $body `
+  -ContentType "application/json" `
+  -OutFile C:\test.mp3
+
+Start-Process C:\test.mp3
+```
+
 ---
 
 ## Phase 3 — Bot Migration
@@ -258,7 +419,7 @@ ffplay test.mp3
 | Component | Before | After |
 |---|---|---|
 | `VoxBotConfig` | `mistral_api_key`, `mistral_default_model` | `tts_base_url`, `voices_dir` |
-| `VoxBot.__init__` | `self.mistral = Mistral(...)` | `self.http = httpx.AsyncClient(...)` |
+| `VoxBot.__init__` | `self.mistral = Mistral(...)` | `self.http = niquests.AsyncClient(...)` |
 | `_custom_voices` | `dict[str, str]` (name → Mistral voice ID) | `dict[str, Path]` (name → ref audio path) |
 | `trainvoice` | POST audio to Mistral, store returned ID | Save attachment bytes to `voices_dir/<name>.wav` |
 | `speak` | `mistral.audio.speech.complete_async(voice_id=...)` | POST to `/v1/audio/speech` with `ref_audio` bytes |
@@ -380,7 +541,7 @@ def start_bot(
 ### 3.8 New dependencies
 
 ```bash
-pip install httpx
+pip install niquests
 # Remove mistralai if no longer needed
 pip uninstall mistralai
 ```
@@ -406,7 +567,7 @@ using the `/v1/audio/speech` streaming endpoint (check vLLM-Omni docs for
 
 ## Checklist
 
-### Server
+### Server (Ubuntu)
 - [ ] NVIDIA driver 535+ installed, `nvidia-smi` confirms GPU
 - [ ] CUDA 12.x installed
 - [ ] `vllm-omni` installed and `vllm --version` works
@@ -416,10 +577,20 @@ using the `/v1/audio/speech` streaming endpoint (check vLLM-Omni docs for
 - [ ] systemd service enabled and survives reboot
 - [ ] Port 8091 reachable from bot machine
 
+### Server (Windows)
+- [ ] NVIDIA driver 535+ installed, `nvidia-smi` confirms (WSL) or GPU-z
+- [ ] CUDA 12.x installed
+- [ ] `vllm-omni` installed and `vllm --version` works
+- [ ] Model downloaded: `Qwen/Qwen3-TTS-12Hz-1.7B-Base`
+- [ ] Server starts, `/health` returns `{"status":"ok"}`
+- [ ] Smoke test Invoke-RestMethod produces valid MP3
+- [ ] Windows service enabled and survives reboot
+- [ ] Firewall rule allows port 8091
+
 ### Bot
-- [ ] `httpx` added to dependencies, `mistralai` removed
+- [ ] `niquests` added to dependencies, `mistralai` removed
 - [ ] `VoxBotConfig` updated (new fields)
-- [ ] `VoxBot.__init__` uses `httpx.AsyncClient`
+- [ ] `VoxBot.__init__` uses `niquests.AsyncClient`
 - [ ] `setup_hook` restores voices from disk
 - [ ] `trainvoice` saves audio to `voices_dir`
 - [ ] `speak` POSTs to `/v1/audio/speech` with `ref_audio`

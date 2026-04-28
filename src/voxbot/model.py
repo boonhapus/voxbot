@@ -1,8 +1,8 @@
 import json
+import os
 import pathlib
 from mistralai.client import Mistral
-import attrs
-import hikariwave
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 import structlog
 
 _LOGGER = structlog.get_logger(__name__)
@@ -10,30 +10,35 @@ _LOGGER = structlog.get_logger(__name__)
 DEFAULT_VOICES_FILE = pathlib.Path.home() / ".voxbot" / "voices.json"
 
 
-@attrs.define(frozen=True, kw_only=True)
-class Config:
-    """Bot configuration loaded from environment variables."""
+class Config(BaseModel):
+    """Bot configuration."""
 
-    token: str
+    discord_token: str
     mistral_api_key: str
     mistral_model: str = "voxtral-mini-tts-2603"
     voices_file: pathlib.Path = DEFAULT_VOICES_FILE
 
+    model_config = ConfigDict(frozen=True)
 
-@attrs.define(kw_only=True)
-class VoxModel:
+
+class VoxModel(BaseModel):
     """Shared model holding bot state and API clients."""
 
     config: Config
-    mistral: Mistral = attrs.field(init=False)
-    custom_voices: dict[str, str] = attrs.field(factory=dict)
-    deleted_voices: set[str] = attrs.field(factory=set)
-    voice_client: hikariwave.VoiceClient | None = None
-    last_active: dict[int, float] = attrs.field(factory=dict)
+    mistral: Mistral | None = None
+    custom_voices: dict[str, str] = {}
+    deleted_voices: set[str] = set()
+    voice_client: object | None = None
+    last_active: dict[int, float] = {}
 
-    def __attrs_post_init__(self) -> None:
-        self.mistral = Mistral(api_key=self.config.mistral_api_key)
-        self._load_voices()
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
+
+    @model_validator(mode="after")
+    def initialize_mistral(self):
+        if self.mistral is None:
+            self.mistral = Mistral(api_key=self.config.mistral_api_key)
+            self._load_voices()
+        return self
 
     def _load_voices(self) -> None:
         """Load voice name→ID mappings from disk."""

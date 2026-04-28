@@ -2,24 +2,17 @@ import importlib.metadata
 import logging
 from typing import Annotated
 
-import crescent
 import cyclopts
-import dotenv
-import hikari
-import hikariwave
+import disnake
+from disnake.ext import commands
 import structlog
-from hikari import Snowflake
 
-from voxbot import model
+from voxbot import model, settings
 
 _LOGGER = structlog.get_logger(__name__)
 
 
-async def _on_starting(event: hikari.StartingEvent) -> None:
-    _LOGGER.info("bot_starting", version=importlib.metadata.version("voxbot"))
-
-
-async def _on_started(event: hikari.StartedEvent) -> None:
+async def _on_ready(bot: disnake.Bot) -> None:
     _LOGGER.info("bot_online")
 
 
@@ -58,31 +51,41 @@ cli = cyclopts.App(help="Voxtral TTS Runner")
 
 
 @cli.default
-def main(
-    token: Annotated[str, cyclopts.Parameter(env_var="DISCORD_TOKEN")],
-    mistral_api_key: Annotated[str, cyclopts.Parameter(env_var="MISTRAL_API_KEY")],
-    debug_guild: Annotated[str | None, cyclopts.Parameter(env_var="DEBUG_GUILD")] = None,
-) -> int:
+def main() -> int:
     _LOGGER.info("initializing")
 
-    config = model.Config(token=token, mistral_api_key=mistral_api_key)
+    # Load settings from .env
+    app_settings = settings.Settings()
+
+    # Create config and model
+    config = model.Config(
+        discord_token=app_settings.discord_token,
+        mistral_api_key=app_settings.mistral_api_key,
+        mistral_model=app_settings.mistral_model,
+    )
     voice_model = model.VoxModel(config=config)
 
-    intents = hikari.Intents.GUILD_VOICE_STATES | hikari.Intents.GUILD_MESSAGES
-    bot = hikari.GatewayBot(token=token, intents=intents)
-    voice_model.voice_client = hikariwave.VoiceClient(bot)
+    # Set up bot with intents
+    intents = disnake.Intents.GUILD_VOICE_STATES | disnake.Intents.GUILD_MESSAGES
+    bot = commands.Bot(
+        command_prefix="!",
+        intents=intents,
+        test_guilds=[int(app_settings.debug_guild)] if app_settings.debug_guild else None,
+    )
+    bot.vox_model = voice_model
 
-    bot.event_manager.subscribe(hikari.StartingEvent, _on_starting)
-    bot.event_manager.subscribe(hikari.StartedEvent, _on_started)
+    # Register ready event
+    @bot.event
+    async def on_ready():
+        _LOGGER.info("bot_online", version=importlib.metadata.version("voxbot"))
 
-    guild = Snowflake(debug_guild) if debug_guild else None
-    client = crescent.Client(bot, voice_model, default_guild=guild)
-    client.plugins.load("voxbot.plugins.voice")
+    # Load cogs
+    bot.load_extensions("voxbot.plugins")
 
     _LOGGER.info("starting")
 
     try:
-        bot.run()
+        bot.run(app_settings.discord_token)
     except KeyboardInterrupt:
         _LOGGER.info("shutdown")
         return 0
@@ -93,6 +96,5 @@ def main(
 
 
 if __name__ == "__main__":
-    dotenv.load_dotenv()
     setup_logging()
     raise SystemExit(cli())
