@@ -10,7 +10,7 @@ class HealthcheckCog(commands.Cog):
 
     @commands.slash_command(name="ping", description="Check bot latency")
     async def ping(self, inter):
-        await inter.response.defer(sending_message=False)
+        await inter.response.defer()
 
         latency_ms = self.bot.latency * 1000
         await inter.edit_original_response(content=f"Pong! **{latency_ms:.0f}ms**")

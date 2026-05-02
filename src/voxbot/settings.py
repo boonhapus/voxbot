@@ -1,36 +1,56 @@
+from typing import Self
 import os
 
-from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import pydantic_settings
+import pydantic
 
 import structlog
 
 _LOGGER = structlog.get_logger(__name__)
 
 
-class Settings(BaseSettings):
+class Settings(pydantic_settings.BaseSettings):
     """Bot configuration loaded from .env file."""
 
-    discord_token: str
-    mistral_api_key: str
+    discord_token: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
+    """https://discord.com/developers/applications/1487888280061083708/bot"""
+
+    mistral_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
+    """https://console.mistral.ai/home?profile_dialog=api-keys"""
+
+    google_api_key: str | None = pydantic.Field(default=None, json_schema_extra={"mirror_to_os.environ": True})
+    """https://aistudio.google.com/projects"""
+
     mistral_model: str = "voxtral-mini-tts-2603"
+    gemini_model: str = "gemini-2.5-flash-lite"
     debug_guild: str | None = None
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = pydantic_settings.SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-    @field_validator("discord_token", "mistral_api_key", mode="before")
-    @classmethod
-    def require_non_empty(cls, v):
-        if not v:
-            raise ValueError("must be non-empty")
-        return v
-
-    @model_validator(mode="after")
-    def sync_to_environ(self):
+    @pydantic.model_validator(mode="after")
+    def export_to_environ(self) -> Self:
         """Sync loaded settings to os.environ for downstream libraries."""
-        os.environ["DISCORD_TOKEN"] = self.discord_token
-        os.environ["MISTRAL_API_KEY"] = self.mistral_api_key
-        os.environ["MISTRAL_MODEL"] = self.mistral_model
-        if self.debug_guild:
-            os.environ["DEBUG_GUILD"] = self.debug_guild
+        for name, field in Settings.model_fields.items():
+            schema_is_empty = field.json_schema_extra is None
+            schema_is_typed = isinstance(field.json_schema_extra, dict)
+            schema_mirrored = field.json_schema_extra.get("mirror_to_os.environ")
+
+            if schema_is_empty or not schema_is_typed or not schema_mirrored:
+                continue
+
+            val = getattr(self, name)
+
+            if hasattr(val, "get_secret_value"):
+                val = val.get_secret_value()
+
+            if os.getenv(env_key := name.upper()) != str(val):
+                os.environ[env_key] = str(val)
+
         return self
+
+
+settings = Settings()
