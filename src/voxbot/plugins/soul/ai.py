@@ -1,8 +1,7 @@
 from typing import Literal
 import dataclasses
 
-from pydantic_ai.models.google import GoogleModel
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, ModelSettings
 import discord
 import pydantic
 
@@ -23,9 +22,10 @@ class DiscordResponse(pydantic.BaseModel):
 # ── AGENT ─────────────────────────────────────────────────────────────────────────────
 
 soul_agent = Agent(
-    GoogleModel(settings.gemini_model),
+    settings.text_model,
     deps_type=DiscordDeps,
     end_strategy="graceful",
+    model_settings=ModelSettings(temperature=0.4),
     system_prompt=(
         "You are an AI soul living inside a Discord bot. "
         "Your name is Voxbot. "

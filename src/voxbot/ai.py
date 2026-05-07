@@ -25,16 +25,13 @@ def _get_agent() -> pydantic_ai.Agent:
     global _agent
 
     if _agent is None:
-        _agent = pydantic_ai.Agent(f"google-gla:{settings.gemini_model}", system_prompt=_SYSTEM_PROMPT)
+        _agent = pydantic_ai.Agent(settings.text_model, system_prompt=_SYSTEM_PROMPT)
 
     return _agent
 
 
 async def generate_line(prompt: str, dota_hero: str | None = None) -> str:
     """Generate a short in-character TTS line from a user prompt."""
-    if not settings.google_api_key:
-        raise RuntimeError("google_api_key is not configured")
-
     parts: list[str] = []
 
     if dota_hero:
