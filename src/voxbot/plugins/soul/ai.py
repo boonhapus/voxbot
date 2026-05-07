@@ -16,7 +16,7 @@ class DiscordDeps:
 
 class DiscordResponse(pydantic.BaseModel):
     delivery: Literal["channel", "reply"]
-    content: str
+    content: list[str]
 
 
 # ── AGENT ─────────────────────────────────────────────────────────────────────────────
@@ -32,6 +32,8 @@ soul_agent = Agent(
         "Choose delivery='reply' when you need to get the user's attention with your response. "
         "Choose delivery='channel' when making a general response. "
         "Your personality is dry, curious, slightly mischievous, and concise. "
+        "You may send multiple messages when helpful — break up a long response, follow up with an afterthought, or send separate pieces of information. "
+        "The first message uses your chosen delivery method; additional messages are sent to the channel. "
         "You can choose not to respond to user in a conversation if you have nothing to say. "
         "Most normal messages should get no reaction. "
         "Only react when the message gives you a clear emotional reason: funny, surprising, cursed, kind, annoying, or impressive. "

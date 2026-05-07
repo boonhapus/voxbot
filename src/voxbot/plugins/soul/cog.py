@@ -26,15 +26,14 @@ class SoulCog(commands.GroupCog, name="soul"):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Process an incoming message."""
-        # 1. Filter: No bots, and must be a DM
         if message.author.bot or not isinstance(message.channel, discord.DMChannel):
             return
         
         if (user_id := message.author.id) not in self.conversations:
             self.conversations[user_id] = []
 
-        async with message.channel.typing():
-            try:
+        try:
+            async with message.channel.typing():
                 r = await ai.soul_agent.run(
                     message.content,
                     deps=ai.DiscordDeps(message=message),
@@ -42,14 +41,15 @@ class SoulCog(commands.GroupCog, name="soul"):
                     message_history=self.conversations[user_id]
                 )
 
-                self.conversations[user_id] = r.all_messages()
+            self.conversations[user_id] = r.all_messages()
 
-                if r.output and r.output.content:
-                    if r.output.delivery == "reply":
-                        await message.reply(r.output.content, mention_author=False)
+            if r.output and r.output.content:
+                for idx, msg in enumerate(r.output.content):
+                    if idx == 0 and r.output.delivery == "reply":
+                        await message.reply(msg, mention_author=False)
                     else:
-                        await message.channel.send(r.output.content)
+                        await message.channel.send(msg)
 
-            except Exception as e:
-                _LOGGER.error("gemini_error", error=str(e), user_id=user_id)
-                await message.reply("My circuits are a bit fried right now. Try again?")
+        except Exception as e:
+            _LOGGER.error("chat_error", error=str(e), user_id=user_id)
+            await message.reply("My circuits are a bit fried right now. Try again?")
