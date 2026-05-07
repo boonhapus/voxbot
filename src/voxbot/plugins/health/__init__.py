@@ -1,8 +1,5 @@
-"""Voice TTS plugin."""
-
-import structlog
-
 from discord.ext import commands
+import structlog
 
 from . import cog
 

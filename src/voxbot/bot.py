@@ -48,7 +48,6 @@ class VoxBot(commands.Bot):
             if not (subdir / "__init__.py").exists():
                 continue
 
-            _LOGGER.info("Loading plugin..", plugin=subdir.name)
             await self.load_extension(name=f"voxbot.plugins.{subdir.name}")
 
     async def on_ready(self):
