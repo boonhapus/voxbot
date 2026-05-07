@@ -1,7 +1,7 @@
 [project]
 name = "voxbot"
 version = "0.2.0"
-description = "TTS Discord bot using disnake"
+description = "TTS Discord bot using discord.py and Songbird"
 readme = "README.md"
 authors = [
     { name = "boonhapus", email = "me@boonhap.us" }
@@ -11,7 +11,8 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "colorama>=0.4.6",
     "cyclopts>=4.10.2",
-    "disnake[voice]>=2.10.0",
+    "discord.py[voice]>=2.7.0",
+    "discord-ext-songbird>=0.4.3",
     "mistralai>=2.4.0",
     "niquests>=3.0.0",
     "pydantic>=2.0.0",

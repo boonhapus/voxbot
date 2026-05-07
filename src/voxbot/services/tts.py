@@ -2,10 +2,9 @@
 
 import base64
 import os
-import pathlib
 import tempfile
 
-import disnake
+import discord
 import structlog
 
 from voxbot.errors import TTSError
@@ -17,7 +16,7 @@ class TTSProcessor:
     """Handles TTS audio generation and Discord playback setup."""
 
     @staticmethod
-    def prepare_audio_source(audio_data_b64: str) -> tuple[disnake.FFmpegPCMAudio, str]:
+    def prepare_audio_source(audio_data_b64: str) -> tuple[discord.FFmpegPCMAudio, str]:
         """
         Decode base64 audio, write to temp file, return FFmpegPCMAudio source.
         Caller is responsible for cleanup via the returned temp path.
@@ -29,7 +28,7 @@ class TTSProcessor:
             tmp.close()
             tmp_path = tmp.name
 
-            source = disnake.FFmpegPCMAudio(tmp_path)
+            source = discord.FFmpegPCMAudio(tmp_path)
             return source, tmp_path
         except Exception as err:
             _LOGGER.error("audio_prepare_failed", error=str(err))

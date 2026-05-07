@@ -7,7 +7,7 @@ from typing import Annotated
 from mistralai.client import Mistral
 import structlog
 
-from voxbot.errors import MistralError, VoiceNotFoundError
+from voxbot.errors import MistralError
 from voxbot.settings import settings
 
 _LOGGER = structlog.get_logger(__name__)

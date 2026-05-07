@@ -10,5 +10,5 @@ _LOGGER = structlog.get_logger(__name__)
 
 
 async def setup(bot: commands.Bot) -> None:
-    """Plugin setup hook."""
-    await bot.add_cog(cog.VoiceCog(bot))
+    """Setup the cog."""
+    await bot.add_cog(cog.HealthCog(bot))
