@@ -21,7 +21,7 @@ class Settings(pydantic_settings.BaseSettings):
     ollama_base_url: str = "http://169.254.83.107:11434/v1"
     """Ollama server URL (mapped to OPENAI_BASE_URL for pydantic-ai)."""
 
-    mistral_model: str = "voxtral-mini-tts-2603"
+    voice_model: str = "voxtral-mini-tts-2603"
     text_model: str = "openai:qwen3.5:4b"
     debug_guild: str | None = None
 
