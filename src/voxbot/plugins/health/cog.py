@@ -6,12 +6,14 @@ import structlog
 _LOGGER = structlog.get_logger(__name__)
 
 
-class HealthcheckCog(commands.Cog):
-    def __init__(self, bot):
+class HealthCog(commands.GroupCog, name="health"):
+    """Health plugin cog."""
+
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     @app_commands.command(name="ping", description="Check bot latency")
-    async def ping(self, interaction: discord.Interaction):
+    async def health_ping(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
         latency_ms = self.bot.latency * 1000
@@ -19,9 +21,6 @@ class HealthcheckCog(commands.Cog):
 
         _LOGGER.info("ping_command_used", user=interaction.user.display_name, latency=latency_ms)
 
-    def cog_load(self):
-        _LOGGER.info("healthcheck_plugin_loaded")
-
-
-async def setup(bot):
-    await bot.add_cog(HealthcheckCog(bot))
+    async def cog_load(self) -> None:
+        """Called when cog is loaded."""
+        _LOGGER.info("health_cog_loaded")
