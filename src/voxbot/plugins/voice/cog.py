@@ -17,7 +17,8 @@ from voxbot.errors import MistralError, TTSError
 from voxbot.model import VoxModel
 from voxbot.services.mistral import MistralService
 from voxbot.services.tts import TTSProcessor
-from voxbot.plugins.voice.state import VoiceState
+
+from . import state
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -65,8 +66,8 @@ class VoiceCog(commands.GroupCog, name="voice"):
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
         """Autocomplete voice names."""
-        voices = VoiceState.get_voice_list(self.mistral_service.voices.custom_voices)
-        filtered = VoiceState.filter_voice_list(voices, current)
+        voices = state.VoiceState.get_voice_list(self.mistral_service.voices.custom_voices)
+        filtered = state.VoiceState.filter_voice_list(voices, current)
         return [app_commands.Choice(name=v, value=v) for v in filtered]
 
     @app_commands.command(name="train", description="Train a custom TTS voice")
@@ -190,7 +191,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
             )
             return
 
-        voice_id = VoiceState.resolve_voice(
+        voice_id = state.VoiceState.resolve_voice(
             voice, self.mistral_service.voices.custom_voices
         )
         if voice_id is None:
@@ -246,29 +247,18 @@ class VoiceCog(commands.GroupCog, name="voice"):
             return
 
         try:
-            # Connect using Songbird for better performance
+            # Connect using standard discord.py voice client first (more reliable)
             vc = discord.utils.get(self.bot.voice_clients, guild=interaction.guild)
             if vc:
                 if vc.channel.id != voice_state.channel.id:
                     await vc.move_to(voice_state.channel)
-                if not isinstance(vc, songbird.SongbirdClient):
-                    await vc.disconnect()
-                    vc = await voice_state.channel.connect(cls=songbird.SongbirdClient)
             else:
-                vc = await voice_state.channel.connect(cls=songbird.SongbirdClient)
+                vc = await voice_state.channel.connect()
 
-            # Songbird uses Track and Source system
-            # For simplicity in this spike, we'll try to use the existing FFmpegPCMAudio if compatible
-            # but Songbird preferred source is songbird.Track(songbird.RawBufferSource(data))
-            
-            # Read back from the temp file we just made
-            with open(tmp_path, "rb") as f:
-                audio_data = f.read()
-            
-            track = songbird.Track(songbird.RawBufferSource(audio_data))
-            await vc.play(track)
-            
-            TTSProcessor.cleanup_temp_file(tmp_path)
+            # Use FFmpegPCMAudio with standard voice client
+            source = discord.FFmpegPCMAudio(tmp_path)
+            vc.play(source, after=lambda e: TTSProcessor.cleanup_temp_file(tmp_path) if e is None else None)
+
         except Exception as err:
             _LOGGER.error("voice_connect_failed", error=str(err))
             TTSProcessor.cleanup_temp_file(tmp_path)
@@ -366,11 +356,6 @@ class VoiceCog(commands.GroupCog, name="voice"):
 
         await interaction.edit_original_response(content="✅ Finished listening spike. Data received for {} users.".format(len(receiver.bytes_per_user)))
 
-    def cog_load(self) -> None:
+    async def cog_load(self) -> None:
         """Called when cog is loaded."""
         _LOGGER.info("voice_cog_loaded")
-
-
-async def setup(bot: commands.Bot) -> None:
-    """Setup the cog."""
-    await bot.add_cog(VoiceCog(bot))
