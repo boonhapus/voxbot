@@ -41,30 +41,15 @@ class VoxBot(commands.Bot):
             _LOGGER.info("synced_commands_globally")
 
     async def _load_plugins(self) -> None:
-        """Load all plugins from plugins/ directory."""
+        """Load all plugins from plugins/ directory using plugin/cog pattern."""
         project_dir = pathlib.Path(__file__).parent
 
-        for py in project_dir.glob("plugins/*.py"):
-            if "__init__" in py.stem:
-                continue
-
-            _LOGGER.info(
-                "Loading extension..",
-                ext=py.stem,
-                path=py.relative_to(project_dir).as_posix(),
-            )
-            await self.load_extension(name=f"voxbot.plugins.{py.stem}")
-
-        # Also load voice plugin subdirectory
         for subdir in project_dir.glob("plugins/*/"):
             if not (subdir / "__init__.py").exists():
                 continue
-            plugin_name = subdir.name
-            _LOGGER.info(
-                "Loading plugin directory..",
-                plugin=plugin_name,
-            )
-            await self.load_extension(name=f"voxbot.plugins.{plugin_name}")
+
+            _LOGGER.info("Loading plugin..", plugin=subdir.name)
+            await self.load_extension(name=f"voxbot.plugins.{subdir.name}")
 
     async def on_ready(self):
         _LOGGER.info("bot_online", version=importlib.metadata.version("voxbot"))
