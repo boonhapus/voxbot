@@ -2,7 +2,7 @@
 
 import time
 
-from disnake.ext import tasks
+from discord.ext import tasks
 import structlog
 
 from voxbot.services.mistral import MistralService
