@@ -21,7 +21,7 @@ class Settings(pydantic_settings.BaseSettings):
     google_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
 
     voc_model: str = "voxtral-mini-tts-2603"
-    txt_model: str = "google-gla:gemini-2.0-flash-lite-latest"
+    txt_model: str = "google-gla:gemini-2.5-flash-lite"
     debug_guild: str | None = None
     soul_home_guild_id: str | None = None
     soul_channel_id: str | None = "1306464265703522325"
