@@ -1,7 +1,9 @@
 from pydantic_ai.messages import ModelMessage
-from discord.ext import commands
+from discord.ext import commands, tasks
 import discord
 import structlog
+
+from voxbot.settings import settings
 
 from . import ai
 
@@ -14,10 +16,16 @@ class SoulCog(commands.GroupCog, name="soul"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.conversations: dict[int, list[ModelMessage]] = {}
+        self._identity_task: tasks.Loop | None = None
 
     @staticmethod
     def _conversation_key(message: discord.Message) -> int:
         return message.channel.id
+
+    @staticmethod
+    def _is_scoped_channel(message: discord.Message) -> bool:
+        target_channel_id = settings.soul_channel_id
+        return bool(target_channel_id) and str(message.channel.id) == target_channel_id.strip()
 
     async def _send_text_action(self, message: discord.Message, action: ai.TextAction) -> None:
         for idx, content in enumerate(action.content):
@@ -67,14 +75,48 @@ class SoulCog(commands.GroupCog, name="soul"):
 
     async def cog_load(self) -> None:
         """Called when cog is loaded."""
+        self._identity_task = self._create_identity_task()
+        self._identity_task.start()
         _LOGGER.info("soul_cog_loaded")
+
+    def cog_unload(self) -> None:
+        """Called when cog is unloaded."""
+        if self._identity_task:
+            self._identity_task.cancel()
+
+    def _create_identity_task(self) -> tasks.Loop:
+        @tasks.loop(seconds=settings.soul_name_check_interval_seconds)
+        async def identity_check() -> None:
+            if not settings.soul_home_guild_id:
+                _LOGGER.warning("soul_identity_skipped", reason="missing_home_guild_id")
+                return
+
+            try:
+                result = await ai.soul_agent.run(
+                    "Background identity check: decide whether your home-guild display name should change. "
+                    "If it should, call change_own_display_name once. Return only a silent action.",
+                    deps=ai.DiscordDeps(bot=self.bot),
+                    output_type=ai.DiscordResponse,
+                )
+            except Exception as e:
+                _LOGGER.error("soul_identity_check_failed", error=str(e))
+                return
+
+            action_count = len(result.output.actions) if result.output else 0
+            _LOGGER.info("soul_identity_checked", action_count=action_count)
+
+        @identity_check.before_loop
+        async def before_identity_check() -> None:
+            await self.bot.wait_until_ready()
+
+        return identity_check
 
     # ── EVENT LISTENERS ───────────────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         """Process an incoming message."""
-        if message.author.bot or not isinstance(message.channel, discord.DMChannel):
+        if message.author.bot or not self._is_scoped_channel(message):
             return
 
         conversation_id = self._conversation_key(message)
@@ -85,7 +127,7 @@ class SoulCog(commands.GroupCog, name="soul"):
             async with message.channel.typing():
                 r = await ai.soul_agent.run(
                     message.content,
-                    deps=ai.DiscordDeps(message=message),
+                    deps=ai.DiscordDeps(bot=self.bot, message=message),
                     output_type=ai.DiscordResponse,
                     message_history=self.conversations[conversation_id],
                 )

@@ -23,6 +23,9 @@ class Settings(pydantic_settings.BaseSettings):
     voc_model: str = "voxtral-mini-tts-2603"
     txt_model: str = "google-gla:gemini-2.0-flash-lite-latest"
     debug_guild: str | None = None
+    soul_home_guild_id: str | None = None
+    soul_channel_id: str | None = "1306464265703522325"
+    soul_name_check_interval_seconds: int = pydantic.Field(default=21600, gt=0)
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",
