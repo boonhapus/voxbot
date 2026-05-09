@@ -15,6 +15,54 @@ class SoulCog(commands.GroupCog, name="soul"):
         self.bot = bot
         self.conversations: dict[int, list[ModelMessage]] = {}
 
+    @staticmethod
+    def _conversation_key(message: discord.Message) -> int:
+        return message.channel.id
+
+    async def _send_text_action(self, message: discord.Message, action: ai.TextAction) -> None:
+        for idx, content in enumerate(action.content):
+            if idx == 0 and action.delivery == "reply":
+                await message.reply(content, mention_author=False)
+            else:
+                await message.channel.send(content)
+
+    async def _send_react_action(self, message: discord.Message, action: ai.ReactAction) -> None:
+        try:
+            await message.add_reaction(action.emoji)
+        except discord.HTTPException as e:
+            _LOGGER.warning("reaction_failed", error=str(e), emoji=action.emoji, message_id=message.id)
+
+    async def _send_thread_action(self, message: discord.Message, action: ai.ThreadAction) -> None:
+        if not action.content:
+            return
+
+        if isinstance(message.channel, discord.Thread):
+            thread = message.channel
+        elif isinstance(message.channel, discord.DMChannel):
+            await self._send_text_action(message, ai.TextAction(content=action.content))
+            return
+        else:
+            try:
+                thread = await message.create_thread(name=action.title)
+            except discord.HTTPException as e:
+                _LOGGER.warning("thread_create_failed", error=str(e), title=action.title, message_id=message.id)
+                await self._send_text_action(message, ai.TextAction(content=action.content))
+                return
+
+        for content in action.content:
+            await thread.send(content)
+
+    async def _send_actions(self, message: discord.Message, response: ai.DiscordResponse) -> None:
+        for action in response.actions:
+            if isinstance(action, ai.SilentAction):
+                continue
+            if isinstance(action, ai.TextAction):
+                await self._send_text_action(message, action)
+            elif isinstance(action, ai.ReactAction):
+                await self._send_react_action(message, action)
+            elif isinstance(action, ai.ThreadAction):
+                await self._send_thread_action(message, action)
+
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
 
     async def cog_load(self) -> None:
@@ -28,9 +76,10 @@ class SoulCog(commands.GroupCog, name="soul"):
         """Process an incoming message."""
         if message.author.bot or not isinstance(message.channel, discord.DMChannel):
             return
-        
-        if (user_id := message.author.id) not in self.conversations:
-            self.conversations[user_id] = []
+
+        conversation_id = self._conversation_key(message)
+        if conversation_id not in self.conversations:
+            self.conversations[conversation_id] = []
 
         try:
             async with message.channel.typing():
@@ -38,18 +87,13 @@ class SoulCog(commands.GroupCog, name="soul"):
                     message.content,
                     deps=ai.DiscordDeps(message=message),
                     output_type=ai.DiscordResponse,
-                    message_history=self.conversations[user_id]
+                    message_history=self.conversations[conversation_id],
                 )
 
-            self.conversations[user_id] = r.all_messages()
-
-            if r.output and r.output.content:
-                for idx, msg in enumerate(r.output.content):
-                    if idx == 0 and r.output.delivery == "reply":
-                        await message.reply(msg, mention_author=False)
-                    else:
-                        await message.channel.send(msg)
+            self.conversations[conversation_id] = r.all_messages()
+            if r.output:
+                await self._send_actions(message, r.output)
 
         except Exception as e:
-            _LOGGER.error("chat_error", error=str(e), user_id=user_id)
+            _LOGGER.error("chat_error", error=str(e), user_id=message.author.id, conversation_id=conversation_id)
             await message.reply("My circuits are a bit fried right now. Try again?")
