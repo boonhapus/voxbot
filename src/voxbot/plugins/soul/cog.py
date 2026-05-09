@@ -1,4 +1,4 @@
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
 from discord.ext import commands, tasks
 import discord
 import structlog
@@ -8,6 +8,20 @@ from voxbot.settings import settings
 from . import ai
 
 _LOGGER = structlog.get_logger(__name__)
+_MAX_CONVERSATION_TURNS = 20
+
+
+def _trim_conversation(messages: list[ModelMessage]) -> list[ModelMessage]:
+    user_request_indexes = [
+        idx
+        for idx, message in enumerate(messages)
+        if isinstance(message, ModelRequest) and any(isinstance(part, UserPromptPart) for part in message.parts)
+    ]
+
+    if len(user_request_indexes) <= _MAX_CONVERSATION_TURNS:
+        return messages
+
+    return messages[user_request_indexes[-_MAX_CONVERSATION_TURNS] :]
 
 
 class SoulCog(commands.GroupCog, name="soul"):
@@ -132,7 +146,7 @@ class SoulCog(commands.GroupCog, name="soul"):
                     message_history=self.conversations[conversation_id],
                 )
 
-            self.conversations[conversation_id] = r.all_messages()
+            self.conversations[conversation_id] = _trim_conversation(r.all_messages())
             if r.output:
                 await self._send_actions(message, r.output)
 
