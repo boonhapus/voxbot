@@ -52,7 +52,7 @@ def main() -> int:
     bot = VoxBot()
 
     try:
-        bot.run(settings.discord_token)
+        bot.run(settings.discord_token, log_handler=None)
     except KeyboardInterrupt:
         _LOGGER.info("shutdown")
         return 0
