@@ -133,7 +133,7 @@ class MistralService:
         """Generate TTS. Returns base64-encoded audio."""
         try:
             response = await self.client.audio.speech.complete_async(
-                model=settings.voice_model,
+                model=settings.voc_model,
                 input=text,
                 voice_id=voice_id,
                 response_format="mp3",

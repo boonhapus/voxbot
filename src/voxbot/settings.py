@@ -18,11 +18,10 @@ class Settings(pydantic_settings.BaseSettings):
     mistral_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
     """https://console.mistral.ai/home?profile_dialog=api-keys"""
 
-    ollama_base_url: str = "http://169.254.83.107:11434/v1"
-    """Ollama server URL (mapped to OPENAI_BASE_URL for pydantic-ai)."""
+    google_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
 
-    voice_model: str = "voxtral-mini-tts-2603"
-    text_model: str = "openai:qwen3.5:4b"
+    voc_model: str = "voxtral-mini-tts-2603"
+    txt_model: str = "google-gla:gemini-2.0-flash-lite-latest"
     debug_guild: str | None = None
 
     model_config = pydantic_settings.SettingsConfigDict(
@@ -49,9 +48,6 @@ class Settings(pydantic_settings.BaseSettings):
 
             if os.getenv(env_key := name.upper()) != str(val):
                 os.environ[env_key] = str(val)
-
-        os.environ["OPENAI_BASE_URL"] = self.ollama_base_url
-        os.environ["OPENAI_API_KEY"] = "ollama"
 
         return self
 
