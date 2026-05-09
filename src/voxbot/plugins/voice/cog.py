@@ -12,12 +12,13 @@ from discord import app_commands
 from discord.ext import commands, songbird
 import structlog
 
-from voxbot import ai, dota_wiki
+from voxbot import dota_wiki
 from voxbot.errors import MistralError, TTSError
 from voxbot.model import VoxModel
 from voxbot.services.mistral import MistralService
 from voxbot.services.tts import TTSProcessor
 
+from . import ai
 from . import state
 
 _LOGGER = structlog.get_logger(__name__)
