@@ -47,15 +47,25 @@ OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
 ln -sfn "$REL" "$APP/current"
 echo "$SHA" > "$APP/deployed_sha"
 
-# Force-kill old processes so launchd restarts immediately
-# (SIGTERM hangs due to docket shutdown crash)
-if [ -f /Users/voxbot/run/voxbot-worker.pid ]; then
-  kill -KILL "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
-fi
+# Force-kill old processes (and their children) so launchd restarts cleanly.
+# Negative pid = kill process group; covers uv -> python subprocesses.
+# (SIGTERM hangs due to docket shutdown crash.)
+kill_release_pidfile() {
+  local pidfile="$1"
+  [ -f "$pidfile" ] || return 0
+  local pid
+  pid="$(cat "$pidfile" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 0
+  local pgid
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+  if [ -n "$pgid" ]; then
+    kill -KILL -"$pgid" 2>/dev/null || true
+  fi
+  kill -KILL "$pid" 2>/dev/null || true
+}
 
-if [ -f /Users/voxbot/run/voxbot.pid ]; then
-  kill -KILL "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
-fi
+kill_release_pidfile /Users/voxbot/run/voxbot-worker.pid
+kill_release_pidfile /Users/voxbot/run/voxbot.pid
 
 sleep 5
 
@@ -65,6 +75,10 @@ for i in {1..30}; do
 
   if [ "$HEALTH_SHA" = "$SHA" ] && [ "$READY" = "true" ]; then
     echo "$LOG_PREFIX deployed $SHA"
+    # Prune old releases, keeping the 5 most recent plus current+previous.
+    ls -1t "$APP/releases" 2>/dev/null | tail -n +6 | while read -r old; do
+      [ -n "$old" ] && rm -rf "$APP/releases/$old"
+    done
     exit 0
   fi
 
@@ -73,6 +87,10 @@ done
 
 echo "$LOG_PREFIX new release failed health check: $SHA"
 
+# Drop the failed release so the next poll re-clones and re-tests instead of
+# silently re-rolling the same bad artifact.
+rm -rf "$REL"
+
 if [ -n "$OLD_CURRENT" ] && [ -d "$OLD_CURRENT" ]; then
   ln -sfn "$OLD_CURRENT" "$APP/current"
   OLD_SHA="$(git -C "$OLD_CURRENT" rev-parse HEAD 2>/dev/null || true)"
@@ -80,13 +98,8 @@ if [ -n "$OLD_CURRENT" ] && [ -d "$OLD_CURRENT" ]; then
     echo "$OLD_SHA" > "$APP/deployed_sha"
   fi
 
-  if [ -f /Users/voxbot/run/voxbot-worker.pid ]; then
-    kill -KILL "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
-  fi
-
-  if [ -f /Users/voxbot/run/voxbot.pid ]; then
-    kill -KILL "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
-  fi
+  kill_release_pidfile /Users/voxbot/run/voxbot-worker.pid
+  kill_release_pidfile /Users/voxbot/run/voxbot.pid
 fi
 
 exit 1
