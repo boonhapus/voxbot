@@ -75,51 +75,55 @@ class VoxBot(commands.Bot):
     async def on_error(self, event_method: str, /, *args, **kwargs) -> None:
         """Handle errors that occur during event processing or command execution."""
         await self.health_runtime.record_error(f"{event_method} failed")
+        
+        # Attempt to extract exception from arguments if present
+        error_detail = None
+        if 'error' in kwargs:
+            error_detail = kwargs['error']
+        elif args:
+            for arg in args:
+                if isinstance(arg, Exception):
+                    error_detail = arg
+                    break
 
-        owner_id_str = settings.discord_owner_ids
-        if owner_id_str:
-            try:
-                owner_id = int(owner_id_str.split(',')[0]) # Take the first owner ID
-                owner = self.get_user(owner_id) or await self.fetch_user(owner_id)
-
-                if owner:
-                    error_message_parts = ["🚨 Bot Error Occurred!"]
-                    error_message_parts.append(f"**Event/Method:** `{event_method}`")
-
-                    # Attempt to extract the exception details
-                    error_detail = None
-                    if 'error' in kwargs: # Likely a command error
-                        error_detail = kwargs['error']
-                    elif args: # Could be an event error, try to get the exception from args if it's an Exception instance
-                        for arg in args:
-                            if isinstance(arg, Exception):
-                                error_detail = arg
-                                break
-                    
-                    if error_detail:
-                        error_message_parts.append(f"**Details:**\n```\n{type(error_detail).__name__}: {error_detail}\n```")
-                    else:
-                        # Fallback if no clear exception is found
-                        error_message_parts.append(f"**Arguments:** `{args}`")
-                        error_message_parts.append(f"**Keyword Arguments:** `{kwargs}`")
-                    
-                    full_error_message = "\n".join(error_message_parts)
-
-                    try:
-                        await owner.send(full_error_message)
-                        _LOGGER.info("sent_error_dm_to_owner", owner_id=owner_id, event=event_method)
-                    except discord.Forbidden:
-                        _LOGGER.warning("failed_to_send_dm_to_owner", owner_id=owner_id, reason="DM blocked by user.")
-                    except Exception as e:
-                        _LOGGER.warning("failed_to_send_dm_to_owner", owner_id=owner_id, reason=f"An unexpected error occurred: {e}")
-
-            except ValueError:
-                _LOGGER.warning("invalid_owner_id_format_for_dm", owner_ids=owner_id_str)
-            except Exception as e:
-                _LOGGER.warning("error_while_preparing_dm", error=str(e))
+        error_message = f"🚨 Bot Error in `{event_method}`!"
+        if error_detail:
+             error_message += f"\n**Details:**\n```\n{type(error_detail).__name__}: {error_detail}\n```"
+        else:
+             error_message += f"\n**Arguments:** `{args}`"
+             error_message += f"\n**Keyword Arguments:** `{kwargs}`"
+        
+        await self._notify_owner(error_message)
 
         # Always call the superclass method to ensure default error handling
         await super().on_error(event_method, *args, **kwargs)
+
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
+        """Handle errors that occur during command execution."""
+        _LOGGER.error("command_error", error=str(error), command=ctx.command.name if ctx.command else "unknown")
+        await self.health_runtime.record_error(f"Command {ctx.command} failed: {error}")
+        
+        await self._notify_owner(f"🚨 Command `{ctx.command}` failed!\n**Error:**\n```\n{type(error).__name__}: {error}\n```")
+
+        await super().on_command_error(ctx, error)
+
+    async def _notify_owner(self, message: str) -> None:
+        """Helper to send DM notification to owner."""
+        owner_id_str = settings.discord_owner_ids
+        if not owner_id_str:
+            return
+
+        try:
+            owner_id = int(owner_id_str.split(',')[0])
+            owner = self.get_user(owner_id) or await self.fetch_user(owner_id)
+            if owner:
+                try:
+                    await owner.send(message)
+                    _LOGGER.info("sent_error_dm_to_owner", owner_id=owner_id)
+                except discord.Forbidden:
+                    _LOGGER.warning("failed_to_send_dm_to_owner", owner_id=owner_id, reason="DM blocked by user.")
+        except Exception as e:
+            _LOGGER.warning("error_while_preparing_dm", error=str(e))
 
     async def request_shutdown(self, *, reason: str, exit_code: int = 0) -> None:
         self.exit_code = exit_code
