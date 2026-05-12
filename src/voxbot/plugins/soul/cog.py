@@ -159,4 +159,7 @@ class SoulCog(commands.GroupCog, name="soul"):
 
         except Exception as e:
             _LOGGER.error("chat_error", error=str(e), user_id=message.author.id, conversation_id=conversation_id)
-            await message.reply("My circuits are a bit fried right now. Try again?")
+            try:
+                await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
+            except discord.HTTPException:
+                await message.channel.send("My circuits are a bit fried right now. Try again?")

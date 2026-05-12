@@ -8,6 +8,14 @@ import structlog
 _LOGGER = structlog.get_logger(__name__)
 
 
+def setup_ssl() -> None:
+    import os
+    import certifi
+    ca = certifi.where()
+    os.environ.setdefault("SSL_CERT_FILE", ca)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
+
+
 def setup_logging() -> None:
     formatter = structlog.stdlib.ProcessorFormatter(
         processor=structlog.dev.ConsoleRenderer(colors=True),
@@ -45,6 +53,7 @@ cli = cyclopts.App(help="Voxtral TTS Runner")
 
 @cli.default
 def main() -> int:
+    setup_ssl()
     setup_logging()
     _LOGGER.info("starting")
     return asyncio.run(run_discord_bot())
@@ -74,6 +83,7 @@ async def run_discord_bot() -> int:
 
 @cli.command
 def worker() -> int:
+    setup_ssl()
     setup_logging()
     _LOGGER.info("starting_worker")
 
