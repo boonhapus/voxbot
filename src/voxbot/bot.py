@@ -1,3 +1,4 @@
+import asyncio
 import importlib.metadata
 import pathlib
 
@@ -45,7 +46,7 @@ class VoxBot(commands.Bot):
             _LOGGER.info("synced_commands_globally")
 
         await self.health_runtime.start(self)
-        await self.docket_runtime.start()
+        asyncio.create_task(self.docket_runtime.start(), name="voxbot-docket-runtime")
 
     async def _load_plugins(self) -> None:
         """Load all plugins from plugins/ directory using plugin/cog pattern."""
