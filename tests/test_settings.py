@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 import pydantic
 
@@ -21,12 +22,18 @@ class SettingsTests(unittest.TestCase):
         return Settings(_env_file=None, **values)
 
     def test_deploy_runtime_defaults(self) -> None:
-        settings = self._settings(
-            redis_url="redis://localhost:6379/1",
-            docket_url=None,
-            docket_name="voxbot",
-            docket_enabled=True,
-        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DISCORD_TOKEN": "test-discord-token",
+                "MISTRAL_API_KEY": "test-mistral-api-key",
+                "GOOGLE_API_KEY": "test-google-api-key",
+            },
+            clear=True,
+        ):
+            settings = self._settings(
+                redis_url="redis://localhost:6379/1",
+            )
 
         self.assertEqual(settings.redis_url, "redis://localhost:6379/1")
         self.assertIsNone(settings.docket_url)
