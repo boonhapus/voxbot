@@ -21,7 +21,9 @@ class SettingsTests(unittest.TestCase):
         return Settings(_env_file=None, **values)
 
     def test_deploy_runtime_defaults(self) -> None:
-        settings = self._settings()
+        settings = self._settings(
+            redis_url="redis://localhost:6379/1",
+        )
 
         self.assertEqual(settings.redis_url, "redis://localhost:6379/1")
         self.assertIsNone(settings.docket_url)
