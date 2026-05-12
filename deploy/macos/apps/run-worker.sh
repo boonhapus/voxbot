@@ -12,4 +12,4 @@ export VOXBOT_RELEASE_SHA="$(git rev-parse HEAD)"
 echo $$ > /Users/voxbot/run/voxbot-worker.pid
 trap 'rm -f /Users/voxbot/run/voxbot-worker.pid' EXIT
 
-exec uv run voxbot worker
+exec uv run --frozen voxbot worker

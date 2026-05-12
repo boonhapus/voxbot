@@ -12,4 +12,4 @@ export VOXBOT_RELEASE_SHA="$(git rev-parse HEAD)"
 echo $$ > /Users/voxbot/run/voxbot.pid
 trap 'rm -f /Users/voxbot/run/voxbot.pid' EXIT
 
-exec uv run voxbot
+exec uv run --frozen voxbot
