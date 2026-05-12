@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from docket import Docket, Worker
@@ -91,7 +92,7 @@ class BotDocketRuntime:
 
         if task is not None:
             task.cancel()
-            with asyncio.suppress(asyncio.CancelledError):
+            with suppress(asyncio.CancelledError):
                 await task
 
         if self.worker is not None:

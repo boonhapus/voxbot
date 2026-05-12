@@ -258,7 +258,13 @@ class VoiceCog(commands.GroupCog, name="voice"):
 
             # Use FFmpegPCMAudio with standard voice client
             source = discord.FFmpegPCMAudio(tmp_path)
-            vc.play(source, after=lambda e: TTSProcessor.cleanup_temp_file(tmp_path) if e is None else None)
+
+            def _after_play(err, _path=tmp_path):
+                if err is not None:
+                    _LOGGER.error("voice_playback_failed", error=str(err))
+                TTSProcessor.cleanup_temp_file(_path)
+
+            vc.play(source, after=_after_play)
 
         except Exception as err:
             _LOGGER.error("voice_connect_failed", error=str(err))
