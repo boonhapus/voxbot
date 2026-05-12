@@ -39,8 +39,8 @@ if [ ! -d "$REL" ]; then
 
   cd "$REL"
   uv sync --frozen --all-groups
-  uv run ruff check .
-  uv run pytest
+  uv run --frozen ruff check .
+  uv run --frozen pytest
 fi
 
 OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
