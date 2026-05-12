@@ -12,20 +12,32 @@ _LOGGER = structlog.get_logger(__name__)
 class Settings(pydantic_settings.BaseSettings):
     """Bot configuration loaded from .env file."""
 
-    discord_token: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
+    discord_token: str = pydantic.Field(
+        repr=False,
+        json_schema_extra={"mirror_to_os.environ": True},
+    )
     """https://discord.com/developers/applications/1487888280061083708/bot"""
 
-    mistral_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
+    mistral_api_key: str = pydantic.Field(
+        repr=False,
+        json_schema_extra={"mirror_to_os.environ": True},
+    )
     """https://console.mistral.ai/home?profile_dialog=api-keys"""
 
-    google_api_key: str = pydantic.Field(json_schema_extra={"mirror_to_os.environ": True})
+    google_api_key: str = pydantic.Field(
+        repr=False,
+        json_schema_extra={"mirror_to_os.environ": True},
+    )
 
     voc_model: str = "voxtral-mini-tts-2603"
     txt_model: str = "google-gla:gemini-2.5-flash-lite"
     debug_guild: str | None = None
 
-    redis_url: str = "redis://localhost:6379/1"
-    docket_url: str | None = None
+    redis_url: str = pydantic.Field(
+        default="redis://localhost:6379/1",
+        repr=False,
+    )
+    docket_url: str | None = pydantic.Field(default=None, repr=False)
     docket_name: str = "voxbot"
     docket_enabled: bool = True
     discord_owner_ids: str | None = None

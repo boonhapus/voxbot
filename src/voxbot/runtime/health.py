@@ -120,7 +120,7 @@ class RedisHealthRuntime:
 
 def _latency_ms(bot: Any | None) -> int | None:
     latency = getattr(bot, "latency", None)
-    if not isinstance(latency, int | float) or latency < 0:
+    if not isinstance(latency, int | float) or not (latency > 0):
         return None
     return int(latency * 1000)
 
