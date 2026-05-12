@@ -47,13 +47,17 @@ OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
 ln -sfn "$REL" "$APP/current"
 echo "$SHA" > "$APP/deployed_sha"
 
+# Force-kill old processes so launchd restarts immediately
+# (SIGTERM hangs due to docket shutdown crash)
 if [ -f /Users/voxbot/run/voxbot-worker.pid ]; then
-  kill -TERM "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
+  kill -KILL "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
 fi
 
 if [ -f /Users/voxbot/run/voxbot.pid ]; then
-  kill -TERM "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
+  kill -KILL "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
 fi
+
+sleep 5
 
 for i in {1..30}; do
   HEALTH_SHA="$(redis-cli -u "$REDIS_URL" GET voxbot:health:release_sha 2>/dev/null || true)"
@@ -77,11 +81,11 @@ if [ -n "$OLD_CURRENT" ] && [ -d "$OLD_CURRENT" ]; then
   fi
 
   if [ -f /Users/voxbot/run/voxbot-worker.pid ]; then
-    kill -TERM "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
+    kill -KILL "$(cat /Users/voxbot/run/voxbot-worker.pid)" 2>/dev/null || true
   fi
 
   if [ -f /Users/voxbot/run/voxbot.pid ]; then
-    kill -TERM "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
+    kill -KILL "$(cat /Users/voxbot/run/voxbot.pid)" 2>/dev/null || true
   fi
 fi
 
