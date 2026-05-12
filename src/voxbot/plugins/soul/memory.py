@@ -134,6 +134,9 @@ class MemoryService:
         if len(fact) > 300:
             return "No memory stored because the fact was too long. Store a shorter, specific fact."
 
+        if message is None and person_id is None:
+            return "No memory stored because there is no current Discord message."
+
         person_key, display_name = self._resolve_person(message, person_id, person_name)
         now = datetime.datetime.now(datetime.UTC).isoformat()
 
@@ -164,9 +167,9 @@ class MemoryService:
                         "fact": fact,
                         "confidence": "explicit",
                         "source": "discord",
-                        "source_message_id": str(message.id),
-                        "channel_id": str(message.channel.id),
-                        "guild_id": str(message.guild.id) if message.guild else None,
+                        "source_message_id": str(message.id) if message else None,
+                        "channel_id": str(message.channel.id) if message else None,
+                        "guild_id": str(message.guild.id) if message and message.guild else None,
                         "created_at": now,
                         "updated_at": now,
                     }
@@ -188,6 +191,9 @@ class MemoryService:
         fact_fragment = " ".join(fact_fragment.strip().split()).casefold()
         if not fact_fragment and category is None:
             return "No memory forgotten because neither a fact fragment nor category was provided."
+
+        if message is None:
+            return "No memory forgotten because there is no current Discord message."
 
         person_key, display_name = self._resolve_person(message, person_id, person_name)
 

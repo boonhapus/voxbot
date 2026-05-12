@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 import pydantic
 
@@ -23,6 +24,9 @@ class SettingsTests(unittest.TestCase):
     def test_deploy_runtime_defaults(self) -> None:
         settings = self._settings(
             redis_url="redis://localhost:6379/1",
+            docket_url=None,
+            docket_name="voxbot",
+            docket_enabled=True,
         )
 
         self.assertEqual(settings.redis_url, "redis://localhost:6379/1")
