@@ -1602,11 +1602,12 @@ wheels = [
 
 [[package]]
 name = "voxbot"
-version = "0.2.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "agent-memory-client" },
     { name = "beautifulsoup4" },
+    { name = "certifi" },
     { name = "colorama" },
     { name = "cyclopts" },
     { name = "discord-ext-songbird" },
@@ -1631,6 +1632,7 @@ dev = [
 requires-dist = [
     { name = "agent-memory-client", specifier = ">=0.14.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
+    { name = "certifi", specifier = ">=2025.0.0" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "cyclopts", specifier = ">=4.10.2" },
     { name = "discord-ext-songbird", specifier = ">=0.4.3" },
