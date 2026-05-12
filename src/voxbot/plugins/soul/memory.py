@@ -54,12 +54,14 @@ class MemoryService:
 
     def _resolve_person(
         self,
-        message: discord.Message,
+        message: discord.Message | None,
         person_id: str | None,
         person_name: str | None,
     ) -> tuple[str, str]:
         if person_id:
             return str(person_id), person_name or str(person_id)
+        if message is None:
+            return "unknown", "unknown"
 
         if person_name:
             normalized = self._normalize_person_name(person_name)
@@ -132,9 +134,6 @@ class MemoryService:
         if len(fact) > 300:
             return "No memory stored because the fact was too long. Store a shorter, specific fact."
 
-        if message is None:
-            return "No memory stored because there is no current Discord message."
-
         person_key, display_name = self._resolve_person(message, person_id, person_name)
         now = datetime.datetime.now(datetime.UTC).isoformat()
 
@@ -189,9 +188,6 @@ class MemoryService:
         fact_fragment = " ".join(fact_fragment.strip().split()).casefold()
         if not fact_fragment and category is None:
             return "No memory forgotten because neither a fact fragment nor category was provided."
-
-        if message is None:
-            return "No memory forgotten because there is no current Discord message."
 
         person_key, display_name = self._resolve_person(message, person_id, person_name)
 

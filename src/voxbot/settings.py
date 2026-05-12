@@ -43,7 +43,7 @@ class Settings(pydantic_settings.BaseSettings):
     discord_owner_ids: str | None = None
 
     soul_home_guild_id: str | None = None
-    soul_channel_id: str | None = None
+    soul_channel_ids: list[str] = pydantic.Field(default_factory=list)
     soul_name_check_interval_seconds: int = pydantic.Field(default=21600, gt=0)
     soul_memory_backend: str = "json"
     soul_memory_server_url: str = "http://localhost:8000"

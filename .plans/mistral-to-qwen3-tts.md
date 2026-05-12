@@ -1,11 +1,14 @@
 # Migration Plan: Mistral Voxtral → Qwen3-TTS (Self-Hosted)
 
+> **Status:** Not started. Bot still uses `MistralService` with Mistral API for all TTS.
+> **Last audited:** 2026-05-12 — code references updated for pydantic-settings + slash commands.
+
 ## Overview
 
 Replace the managed Mistral `voxtral-mini-tts-2603` API with a self-hosted
 Qwen3-TTS inference server running on a local networked machine (RTX 3060,
-12 GB VRAM). The bot's `!trainvoice` and `!speak` commands must continue to
-work with zero functional regression.
+12 GB VRAM). The bot's `/voice speak` and `/voice train` commands must continue
+to work with zero functional regression.
 
 ---
 
@@ -54,7 +57,7 @@ checkpoint:
 
 **Chosen model: `Qwen3-TTS-12Hz-1.7B-Base`**
 
-Reason: matches the existing `!trainvoice` workflow — user uploads a voice
+Reason: matches the existing `/voice train` workflow — user uploads a voice
 sample, bot stores it, TTS calls attach it as `ref_audio` on each request.
 VRAM footprint is ~4.5 GB weights + ~2.5 GB runtime buffers = ~7 GB total,
 well within the RTX 3060's 12 GB.
@@ -412,139 +415,94 @@ Start-Process C:\test.mp3
 
 ---
 
-## Phase 3 — Bot Migration
+## Phase 3 — Bot Migration (Current Code)
 
 ### 3.1 What changes
 
 | Component | Before | After |
 |---|---|---|
-| `VoxBotConfig` | `mistral_api_key`, `mistral_default_model` | `tts_base_url`, `voices_dir` |
-| `VoxBot.__init__` | `self.mistral = Mistral(...)` | `self.http = niquests.AsyncClient(...)` |
+| `Settings` | `mistral_api_key`, `voc_model` | `tts_base_url`, `voices_dir` |
+| `MistralService` | Mistral SDK client | `httpx.AsyncClient` (or reuse `niquests`) |
 | `_custom_voices` | `dict[str, str]` (name → Mistral voice ID) | `dict[str, Path]` (name → ref audio path) |
-| `trainvoice` | POST audio to Mistral, store returned ID | Save attachment bytes to `voices_dir/<name>.wav` |
-| `speak` | `mistral.audio.speech.complete_async(voice_id=...)` | POST to `/v1/audio/speech` with `ref_audio` bytes |
+| `voice_train` | POST audio to Mistral, store returned ID | Save attachment bytes to `voices_dir/<name>.wav` |
+| `voice_speak` | `mistral.audio.speech.complete_async(voice_id=...)` | POST to `/v1/audio/speech` with `ref_audio` bytes |
 | Audio decode | `b64.b64decode(response.audio_data)` | `response.content` (raw bytes) |
 | Preset voices | `en_paul_<emotion>` string IDs | Remove (no equivalent; use VoiceDesign model if needed) |
 
 ### 3.2 New config fields
 
 ```python
-@attrs.define(frozen=True, kw_only=True)
-class VoxBotConfig:
-    discord_token: str
-    command_prefix: str = "!"
-    tts_base_url: str = "http://localhost:8091"
-    voices_dir: Path = Path("voices")
+# in src/voxbot/settings.py
+tts_base_url: str = "http://localhost:8091"
+voices_dir: str = str(pathlib.Path.home() / ".voxbot" / "voices")
 ```
 
-### 3.3 `trainvoice` — new implementation
+### 3.3 `voice_train` — new implementation
 
-Save the attachment to disk instead of uploading to Mistral:
+Save the attachment to disk instead of uploading to Mistral. Currently in
+`src/voxbot/plugins/voice/cog.py:VoiceCog.voice_train`:
 
 ```python
-@commands.command(name="trainvoice")
-async def _trainvoice(self, ctx: commands.Context) -> None:
-    # ... validation unchanged ...
-
-    voice_name = Path(attachment.filename).stem
-    dest = self.bot.config.voices_dir / f"{voice_name}.wav"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    audio_bytes = await attachment.read()
-    dest.write_bytes(audio_bytes)
-
-    self.bot._custom_voices[voice_name] = dest
-    await ctx.send(f"✅ Voice `{voice_name}` saved. Use: `!speak --voice {voice_name} message`")
-    await ctx.message.delete()
+# Replace MistralService.train_voice(...) with:
+voice_name = pathlib.Path(audio.filename).stem.title()
+dest = pathlib.Path(settings.voices_dir) / f"{voice_name}.wav"
+dest.parent.mkdir(parents=True, exist_ok=True)
+dest.write_bytes(audio_bytes)
+self.custom_voices[voice_name] = dest
 ```
 
-### 3.4 `speak` — new implementation
+### 3.4 `voice_speak` — new implementation
 
 ```python
-@commands.command(name="speak")
-async def _speak(self, ctx, voice: str | None = None, *, message: str = "woof!") -> None:
-    # ... voice channel check unchanged ...
-
-    if voice:
-        voice_path = self.bot._custom_voices.get(voice)
-        if not voice_path:
-            available = ", ".join(self.bot._custom_voices) or "none"
-            await ctx.send(f"❌ Unknown voice `{voice}`. Available: {available}")
-            return
-        ref_audio_b64 = b64.b64encode(voice_path.read_bytes()).decode()
-        payload = {
-            "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-            "input": message,
-            "voice": "custom",
-            "response_format": "mp3",
-            "task_type": "Base",
-            "ref_audio": f"data:audio/wav;base64,{ref_audio_b64}",
-            "ref_text": "",   # optional — helps quality if you store a transcript
-        }
-    else:
-        await ctx.send("❌ No preset voices. Provide `--voice <name>` from a trained voice.")
-        return
-
-    resp = await self.bot.http.post(
-        f"{self.bot.config.tts_base_url}/v1/audio/speech",
+# Replace MistralService.text_to_speech(...) with:
+voice_path = self.custom_voices.get(voice)
+ref_audio_b64 = base64.b64encode(voice_path.read_bytes()).decode()
+payload = {
+    "model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "input": text,
+    "voice": "custom",
+    "response_format": "mp3",
+    "task_type": "Base",
+    "ref_audio": f"data:audio/wav;base64,{ref_audio_b64}",
+    "ref_text": "",
+}
+async with httpx.AsyncClient() as client:
+    resp = await client.post(
+        f"{settings.tts_base_url}/v1/audio/speech",
         json=payload,
         timeout=30.0,
     )
     resp.raise_for_status()
-    audio_bytes = resp.content   # raw MP3 bytes, no base64 unwrapping
-
-    voice_client = await self.bot.ensure_voice(...)
-    if voice_client.is_playing():
-        voice_client.stop()
-    voice_client.play(discord.FFmpegPCMAudio(io.BytesIO(audio_bytes), pipe=True))
-    await ctx.message.delete()
+    audio_bytes = resp.content  # raw MP3, no base64 unwrap
 ```
 
 ### 3.5 Startup: restore voices from disk
 
-On bot start, scan `voices_dir` and repopulate `_custom_voices` so trained
-voices survive restarts:
+On bot start, scan `voices_dir` and repopulate `custom_voices`:
 
 ```python
-async def setup_hook(self) -> None:
-    self.config.voices_dir.mkdir(parents=True, exist_ok=True)
-    for f in self.config.voices_dir.iterdir():
-        if f.suffix in {".wav", ".mp3", ".ogg", ".flac"}:
-            self._custom_voices[f.stem] = f
-    await self.add_cog(VoiceCog(bot=self))
-    self.inactivity_watchdog.start()
+# in VoiceCog.cog_load
+voices_path = pathlib.Path(settings.voices_dir)
+voices_path.mkdir(parents=True, exist_ok=True)
+for f in voices_path.iterdir():
+    if f.suffix in {".wav", ".mp3", ".ogg", ".flac"}:
+        self.custom_voices[f.stem] = f
 ```
 
-### 3.6 CLI changes
-
-Remove `mistral_api_key`. Add `tts_base_url` and `voices_dir`:
-
-```python
-@cli.default
-def start_bot(
-    discord_token: Annotated[str, cyclopts.Parameter(env_var="DISCORD_TOKEN")],
-    tts_base_url: Annotated[str, cyclopts.Parameter(env_var="TTS_BASE_URL")] = "http://localhost:8091",
-    voices_dir: Annotated[Path, cyclopts.Parameter(env_var="VOICES_DIR")] = Path("voices"),
-    prefix: str = "!",
-) -> int:
-    ...
-```
-
-### 3.7 `.env` changes
+### 3.6 `.env` changes
 
 ```diff
 -MISTRAL_API_KEY=sk-...
 +TTS_BASE_URL=http://<server-ip>:8091
-+VOICES_DIR=./voices
 ```
 
-### 3.8 New dependencies
+`voices_dir` defaults to `~/.voxbot/voices` — no env change needed unless
+overriding.
 
-```bash
-pip install niquests
-# Remove mistralai if no longer needed
-pip uninstall mistralai
-```
+### 3.7 Dependencies
+
+`niquests` is already in `pyproject.toml` (used by other parts of the bot).
+`mistralai` can be removed once the migration is complete.
 
 ---
 
@@ -588,14 +546,14 @@ using the `/v1/audio/speech` streaming endpoint (check vLLM-Omni docs for
 - [ ] Firewall rule allows port 8091
 
 ### Bot
-- [ ] `niquests` added to dependencies, `mistralai` removed
-- [ ] `VoxBotConfig` updated (new fields)
-- [ ] `VoxBot.__init__` uses `niquests.AsyncClient`
-- [ ] `setup_hook` restores voices from disk
-- [ ] `trainvoice` saves audio to `voices_dir`
-- [ ] `speak` POSTs to `/v1/audio/speech` with `ref_audio`
+- [ ] `tts_base_url` and `voices_dir` added to `Settings`
+- [ ] `MistralService` replaced with httpx/niquests calls to Qwen3 endpoint
+- [ ] `voice_train` saves audio to `voices_dir` instead of Mistral API
+- [ ] `voice_speak` POSTs to `/v1/audio/speech` with `ref_audio`
+- [ ] `cog_load` restores voices from disk on startup
 - [ ] Audio decoded from raw bytes (not base64)
-- [ ] `.env` updated with `TTS_BASE_URL` and `VOICES_DIR`
+- [ ] `.env` updated: remove `MISTRAL_API_KEY`, add `TTS_BASE_URL`
+- [ ] `mistralai` removed from dependencies
 - [ ] End-to-end test: train a voice, speak with it
 
 ---

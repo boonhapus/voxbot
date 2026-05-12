@@ -9,6 +9,7 @@ from . import ai
 
 _LOGGER = structlog.get_logger(__name__)
 _MAX_CONVERSATION_TURNS = 20
+_OWNER_ID = 119826797478019075
 
 
 def _trim_conversation(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -30,6 +31,7 @@ class SoulCog(commands.GroupCog, name="soul"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.conversations: dict[int, list[ModelMessage]] = {}
+        self._startup_notified = False
 
     @staticmethod
     def _conversation_key(message: discord.Message) -> int:
@@ -37,8 +39,9 @@ class SoulCog(commands.GroupCog, name="soul"):
 
     @staticmethod
     def _is_scoped_channel(message: discord.Message) -> bool:
-        target_channel_id = settings.soul_channel_id
-        return bool(target_channel_id) and str(message.channel.id) == target_channel_id.strip()
+        if not settings.soul_channel_ids:
+            return False
+        return str(message.channel.id) in settings.soul_channel_ids
 
     async def _send_text_action(self, message: discord.Message, action: ai.TextAction) -> None:
         for idx, content in enumerate(action.content):
@@ -85,6 +88,31 @@ class SoulCog(commands.GroupCog, name="soul"):
                 await self._send_thread_action(message, action)
 
     # ── EVENT LISTENERS ───────────────────────────────────────────────────────────────
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Notify owner on first ready event after startup."""
+        if self._startup_notified:
+            return
+        self._startup_notified = True
+
+        owner = self.bot.get_user(_OWNER_ID) or await self.bot.fetch_user(_OWNER_ID)
+
+        try:
+            await owner.send("Hey! I just came back online.")
+        except discord.HTTPException:
+            _LOGGER.warning("startup_notify_dm_failed", owner_id=_OWNER_ID)
+
+        try:
+            await ai.memory_service.remember(
+                message=None,
+                fact="Voxbot just came back online and notified me.",
+                category="life_event",
+                person_id=str(_OWNER_ID),
+                person_name=owner.display_name,
+            )
+        except Exception:
+            _LOGGER.warning("startup_memory_store_failed")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:

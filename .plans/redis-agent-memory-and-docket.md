@@ -1,5 +1,10 @@
 # Plan: Redis Agent Memory + Docket Background Work
 
+> **Status:** Phases 1, 4, 5 **complete**. Phases 2, 3, 6 **not started**.
+> **Last audited:** 2026-05-12
+> **Note:** The separate deploy plan (`.plans/mac-server-self-healing-deploy.md`) has been removed
+> as completed — its deploy scripts live in `deploy/macos/`.
+
 ## Goal
 
 Use Redis Agent Memory Server and Docket in Voxbot as real, inspectable
@@ -25,16 +30,26 @@ Relevant code:
   - JSON file-backed personal facts.
   - Sync `summary()` plus async `remember()` / `forget()`.
 - `src/voxbot/plugins/soul/ai.py`
-  - Owns `memory_service`.
+  - Owns `memory_service` (singleton `MemoryService()`).
   - Exposes `remember_person_fact` and `forget_person_fact` as pydantic-ai tools.
+  - System prompt calls `memory_service.summary(message)` synchronously.
+- `src/voxbot/plugins/soul/models.py`
+  - `DiscordDeps` has `bot` + `message` — **no `memory_summary` field yet**.
 - `src/voxbot/plugins/soul/cog.py`
   - Keeps conversation history in memory.
-  - Runs a periodic identity check using `discord.ext.tasks`.
-- `src/voxbot/tasks.py`
-  - Runs periodic Mistral voice sync.
-  - Runs periodic inactive voice auto-leave.
-- `src/voxbot/plugins/voice/cog.py`
-  - Updates `vox_model.last_active` after voice playback.
+  - `on_message` calls `soul_agent.run` directly without pre-fetching memory.
+- `src/voxbot/runtime/docket.py`
+  - `BotDocketRuntime` — Docker worker inside bot process.
+  - `register_pure_background_tasks()` / `register_bot_local_tasks()`.
+- `src/voxbot/runtime/jobs.py`
+  - `sync_voices` (pure, 300s interval).
+  - `auto_leave_voice_clients` (bot-local, 60s interval).
+  - `soul_identity_check` (bot-local, configurable interval).
+- `src/voxbot/runtime/worker.py`
+  - External worker entry point for pure background tasks.
+- `src/voxbot/settings.py`
+  - Has `redis_url`, `docket_*`, `soul_*`, `health_*` fields.
+  - `soul_auto_extract_enabled: bool = False` (default off).
 
 Important constraint:
 
@@ -42,9 +57,7 @@ Important constraint:
 - `agent-memory-client` supports Python `>=3.10`.
 - `agent-memory-server` currently requires Python `>=3.12,<3.13`, so run the
   server outside this bot venv, preferably in Docker or its own uv project.
-- `agent-memory-server` depends on `pydocket`, but that transitive dependency
-  only lands in the memory-server environment if the server runs separately.
-  Add `pydocket` directly to Voxbot if Voxbot will own Docket jobs.
+- `pydocket` and `agent-memory-client` are already in `pyproject.toml`.
 
 ---
 
@@ -91,80 +104,65 @@ auto-extraction pilot can be inspected separately before it affects behavior.
 
 ---
 
-## New Settings
-
-Add to `Settings`:
-
-```python
-redis_url: str = "redis://localhost:6379/0"
-
-docket_url: str | None = None
-docket_name: str = "voxbot"
-docket_enabled: bool = True
-
-soul_memory_backend: str = "json"  # json | agent_memory
-soul_memory_server_url: str = "http://localhost:8000"
-soul_memory_namespace: str = "voxbot:soul"
-soul_auto_extract_enabled: bool = False
-soul_auto_extract_channel_id: str | None = "1306464265703522325"
-soul_auto_extract_namespace: str = "voxbot:soul:auto-test"
-```
-
-`docket_url` should default to `redis_url` in factory code, not by duplicating
-logic in every call site.
-
----
-
-## Phase 1: Local Infrastructure
+## Done: Phase 1 — Local Infrastructure
 
 ### 1.1 Redis
 
-Use one Redis instance for the first pass.
-
-Development target:
-
-```text
-redis://localhost:6379/0
-```
-
-For clearer isolation later:
-
-- DB 0: Agent Memory Server data.
-- DB 1: Voxbot Docket data.
+- `settings.redis_url` exists (default `redis://localhost:6379/1`).
+- `runtime/redis.py` — async Redis client factory.
+- `runtime/health.py` — `RedisHealthRuntime` (heartbeat + health state).
 
 ### 1.2 Agent Memory Server
 
-Run Redis AMS outside the Voxbot Python 3.14 venv.
+- `deploy/macos/infra/compose.yaml` includes `agent-memory-api` and
+  `agent-memory-worker` services (ready to `docker compose up`).
+- `deploy/macos/infra/infra-up.sh` — bootstrap script.
 
-Development config:
-
-```yaml
-redis_url: redis://localhost:6379/0
-generation_model: gpt-4o-mini
-embedding_model: text-embedding-3-small
-long_term_memory: true
-enable_discrete_memory_extraction: true
-index_all_messages_in_long_term_memory: false
-auth_mode: disabled
-log_level: INFO
-```
-
-Run both processes:
-
-```bash
-agent-memory api
-agent-memory task-worker --concurrency 2
-```
-
-Success criteria:
-
-- `GET /v1/health` succeeds.
-- A manual memory can be created through `agent-memory-client`.
-- A manual search returns the memory.
+**Human task:** Run on the Mac server or locally to have AMS available.
 
 ---
 
-## Phase 2: Memory Service Abstraction
+## Done: Phase 4 — Docket Runtime for Voxbot
+
+### 4.1 Docket Dependency
+
+Already in `pyproject.toml`: `pydocket>=0.20.2`, `agent-memory-client>=0.14.0`.
+
+### 4.2 Docket Factory and Registration
+
+`runtime/docket.py`:
+- `register_pure_background_tasks(docket)` — pure tasks only
+- `register_bot_local_tasks(docket)` — tasks needing live Discord client
+- `bind_bot_runtime(bot)` / `require_bot()` — module-level bot holder
+- `BotDocketRuntime` — starts a Docket worker inside the bot process
+
+### 4.3 CLI Worker Entry Point
+
+`__main__.py`:
+- `voxbot` — starts Discord bot (with bot-local Docket worker)
+- `voxbot worker` — external Docket worker for pure tasks only
+
+### 4.4 Bot-Local Docket Worker
+
+`runtime/docket.py:BotDocketRuntime` — running in `bot.py:setup_hook`.
+
+---
+
+## Done: Phase 5 — Replace Background Tasks
+
+All `discord.ext.tasks` loops replaced with Docket perpetual tasks:
+
+| Task | Location | Type | Interval |
+|------|----------|------|----------|
+| Voice sync | `runtime/jobs.py:sync_voices` | Pure | 300s |
+| Auto leave | `runtime/jobs.py:auto_leave_voice_clients` | Bot-local | 60s |
+| Identity check | `runtime/jobs.py:soul_identity_check` | Bot-local | configurable |
+
+No `discord.ext.tasks` remain anywhere in the source.
+
+---
+
+## Not Started: Phase 2 — Memory Service Abstraction
 
 ### 2.1 Refactor Prompt Memory Hydration
 
@@ -172,23 +170,24 @@ The current prompt calls `memory_service.summary(message)` synchronously inside
 the pydantic-ai system prompt. Redis AMS calls are async, so move memory lookup
 before `soul_agent.run`.
 
-Change `DiscordDeps`:
+Change `DiscordDeps` in `models.py`:
 
 ```python
 @dataclasses.dataclass
 class DiscordDeps:
     bot: discord.Client
     message: discord.Message | None = None
-    memory_summary: str = ""
+    memory_summary: str = ""        # <-- add this
 ```
 
-Change prompt construction:
+Change prompt construction in `ai.py` — pass `memory_summary` from deps instead
+of calling `memory_service.summary(message)`:
 
 ```python
-memory_summary=ctx.deps.memory_summary
+memory_summary = ctx.deps.memory_summary
 ```
 
-Change `SoulCog.on_message`:
+Change `SoulCog.on_message` in `cog.py`:
 
 ```python
 memory_summary = await ai.memory_service.summary_for_message(
@@ -207,11 +206,11 @@ r = await ai.soul_agent.run(
 )
 ```
 
-Change identity check:
+Change identity check in `jobs.py`:
 
 ```python
 deps=ai.DiscordDeps(
-    bot=self.bot,
+    bot=bot,
     memory_summary=await ai.memory_service.summary_for_message(None),
 )
 ```
@@ -223,9 +222,9 @@ Keep the existing JSON backend as the default until the Redis path is stable.
 Proposed files:
 
 ```text
-src/voxbot/plugins/soul/memory_base.py
-src/voxbot/plugins/soul/json_memory.py
-src/voxbot/plugins/soul/agent_memory.py
+src/voxbot/plugins/soul/memory_base.py     # Protocol/ABC
+src/voxbot/plugins/soul/json_memory.py     # current JSON impl, extracted
+src/voxbot/plugins/soul/agent_memory.py    # new Redis AMS impl
 ```
 
 Minimal protocol:
@@ -258,7 +257,6 @@ class SoulMemoryService(Protocol):
 ```
 
 `AgentMemoryService.remember()`:
-
 - Resolve the target person the same way the JSON service does.
 - Create a semantic long-term memory.
 - Set `user_id` to the Discord user id or `name:{normalized}`.
@@ -272,7 +270,6 @@ class SoulMemoryService(Protocol):
   - person_display_name
 
 `AgentMemoryService.summary_for_message()`:
-
 - For `message is None`, return a background-safe summary.
 - Search long-term memory with:
   - text: `query or message.content or "known facts about this user"`
@@ -288,20 +285,29 @@ class SoulMemoryService(Protocol):
 ```
 
 `AgentMemoryService.forget()`:
-
 - Search candidate memories for that user/category/fragment.
 - Delete matching memory IDs.
 - Return a Discord-friendly count.
 
 Success criteria:
-
 - Existing JSON memory tests still pass.
 - New Agent Memory service tests pass with a fake client.
 - One optional integration smoke test can run against local AMS.
 
+### 2.3 Backend selection
+
+In `ai.py`, select backend based on settings:
+
+```python
+if settings.soul_memory_backend == "agent_memory":
+    memory_service = AgentMemoryService(...)
+else:
+    memory_service = JsonMemoryService(...)
+```
+
 ---
 
-## Phase 3: Controlled Auto Extraction
+## Not Started: Phase 3 — Controlled Auto Extraction
 
 Do not let auto-extracted memories affect the normal soul prompt initially.
 
@@ -314,7 +320,6 @@ src/voxbot/plugins/soul/auto_extract.py
 ```
 
 Behavior:
-
 - Only run when `settings.soul_auto_extract_enabled` is true.
 - Only record messages from `settings.soul_auto_extract_channel_id`.
 - Ignore bot messages.
@@ -358,13 +363,10 @@ async def record_auto_extract_message(
 ```
 
 The task writes a `WorkingMemory` update to AMS using:
-
 - `session_id=discord-auto:{guild_id}:{channel_id}:user:{author_id}`
 - `user_id=str(author_id)`
 - `namespace=settings.soul_auto_extract_namespace`
 - one `MemoryMessage(role="user", content=...)`
-
-AMS background extraction can then promote useful memories to long-term storage.
 
 Use Docket key:
 
@@ -388,7 +390,6 @@ Do not merge auto-extracted memories into `voxbot:soul` until the search output
 looks sane over real test-channel traffic.
 
 Success criteria:
-
 - Messages outside channel `1306464265703522325` are ignored.
 - Messages inside the channel enqueue exactly one Docket task per Discord
   message id.
@@ -398,242 +399,16 @@ Success criteria:
 
 ---
 
-## Phase 4: Docket Runtime for Voxbot
-
-### 4.1 Add Docket Dependency
-
-Add direct dependencies:
-
-```toml
-"pydocket>=0.20.2",
-"agent-memory-client>=0.14.0",
-```
-
-Keep `agent-memory-server` out of this project environment.
-
-### 4.2 Add Docket Factory and Registration
-
-Proposed files:
-
-```text
-src/voxbot/docket_runtime.py
-src/voxbot/jobs/__init__.py
-src/voxbot/jobs/voice.py
-src/voxbot/jobs/soul.py
-```
-
-Factory:
-
-```python
-def docket_url() -> str:
-    return settings.docket_url or settings.redis_url
-
-def create_docket() -> Docket:
-    return Docket(name=settings.docket_name, url=docket_url())
-
-def register_pure_jobs(docket: Docket) -> None:
-    docket.register(sync_voices)
-    docket.register(record_auto_extract_message)
-
-def register_bot_local_jobs(docket: Docket) -> None:
-    docket.register(auto_leave_voice_clients)
-    docket.register(soul_identity_check)
-```
-
-### 4.3 Add CLI Worker Entry Point
-
-Extend `voxbot.__main__`:
-
-```text
-voxbot              # current bot behavior
-voxbot worker       # external Docket worker for pure jobs
-```
-
-The external worker should register only pure jobs:
-
-- `sync_voices`
-- `record_auto_extract_message`
-- future pure maintenance jobs
-
-It must not register jobs that need the live Discord bot object.
-
-### 4.4 Bot-Local Docket Worker
-
-For learning, replace bot-bound `discord.ext.tasks` loops with a Docket worker
-running inside the bot process.
-
-Bot-local jobs:
-
-- `auto_leave_voice_clients`
-- `soul_identity_check`
-
-This is intentionally bot-local because these jobs need:
-
-- `bot.voice_clients`
-- `bot.wait_until_ready()`
-- `guild.me`
-- `member.edit(...)`
-
-Implementation sketch:
-
-```python
-class BotDocketRuntime:
-    def __init__(self, bot: VoxBot) -> None:
-        self.bot = bot
-        self.docket: Docket | None = None
-        self.worker: Worker | None = None
-        self.task: asyncio.Task | None = None
-
-    async def start(self) -> None:
-        await self.bot.wait_until_ready()
-        self.docket = create_docket()
-        await self.docket.__aenter__()
-        bind_bot_runtime(self.bot)
-        register_bot_local_jobs(self.docket)
-        self.worker = Worker(self.docket)
-        await self.worker.__aenter__()
-        self.task = asyncio.create_task(self.worker.run_forever())
-
-    async def stop(self) -> None:
-        ...
-```
-
-Use a narrow module-level runtime holder only for bot-local jobs:
-
-```python
-_bot: discord.Client | None = None
-
-def bind_bot_runtime(bot: discord.Client) -> None:
-    global _bot
-    _bot = bot
-
-def require_bot() -> discord.Client:
-    if _bot is None:
-        raise RuntimeError("bot runtime is not bound")
-    return _bot
-```
-
-This is acceptable for the learning pilot because only the Discord process
-registers these jobs. Do not register bot-local jobs in `voxbot worker`.
-
----
-
-## Phase 5: Replace Current Background Tasks
-
-### 5.1 Voice Sync
-
-Current:
-
-- `VoiceBackgroundTasks._create_voice_sync_task()`
-- every 300 seconds
-
-Docket replacement:
-
-```python
-async def sync_voices(
-    perpetual: Perpetual = Perpetual(every=timedelta(seconds=300), automatic=True),
-    retry: ExponentialRetry = ExponentialRetry(...),
-    timeout: Timeout = Timeout(timedelta(minutes=2)),
-) -> None:
-    service = MistralService()
-    await service.sync_voices()
-```
-
-Run in the external `voxbot worker`.
-
-### 5.2 Auto Leave
-
-Current:
-
-- `VoiceBackgroundTasks._create_auto_leave_task()`
-- every 60 seconds
-- disconnects guild voice clients inactive for 300 seconds
-
-Docket replacement:
-
-```python
-async def auto_leave_voice_clients(
-    perpetual: Perpetual = Perpetual(every=timedelta(seconds=60), automatic=True),
-) -> None:
-    bot = require_bot()
-    vox_model = require_vox_model(bot)
-    ...
-```
-
-Run only in the bot-local Docket worker.
-
-Risk:
-
-- This is a less natural Docket fit because it depends on live process state.
-- Keep it bot-local and test it directly.
-
-### 5.3 Soul Identity Check
-
-Current:
-
-- `SoulCog._create_identity_task()`
-- every `settings.soul_name_check_interval_seconds`
-
-Docket replacement:
-
-```python
-async def soul_identity_check(
-    perpetual: Perpetual = Perpetual(
-        every=timedelta(seconds=settings.soul_name_check_interval_seconds),
-        automatic=True,
-    ),
-    timeout: Timeout = Timeout(timedelta(minutes=2)),
-) -> None:
-    bot = require_bot()
-    result = await soul_agent.run(...)
-    ...
-```
-
-Run only in the bot-local Docket worker.
-
-Success criteria:
-
-- `src/voxbot/tasks.py` is removed or reduced to compatibility glue.
-- No `discord.ext.tasks` loops remain for voice sync, auto-leave, or identity
-  check.
-- Bot startup starts the bot-local Docket runtime once.
-- `voxbot worker` can process pure jobs without importing or starting Discord.
-
----
-
-## Phase 6: Tests
+## Not Started: Phase 6 — Tests
 
 Unit tests:
-
-- JSON memory backend remains behavior-compatible.
-- Agent Memory backend formats search results correctly with fake client output.
-- Agent Memory forget deletes all matching fake memory ids.
-- Auto-extraction channel guard accepts only `1306464265703522325`.
-- Auto-extraction task payload is idempotently keyed by message id.
-- Docket tasks can be called directly as normal async functions.
-- Docket registration includes pure jobs in worker mode and bot-local jobs in
-  bot mode.
-
-Docket integration tests:
-
-- Use `memory://` backend for local Docket unit tests.
-- Schedule `record_auto_extract_message` and run worker until finished.
-- Bound perpetual task tests with Docket's limited-run helpers rather than
-  waiting forever.
-
-Manual smoke tests:
-
-1. Start Redis.
-2. Start Agent Memory API.
-3. Start Agent Memory task worker.
-4. Start `voxbot worker`.
-5. Start Voxbot.
-6. Use `remember_person_fact` through natural chat.
-7. Confirm search returns memory from `voxbot:soul`.
-8. Post in channel `1306464265703522325`.
-9. Confirm auto-extracted memory appears only in `voxbot:soul:auto-test`.
-10. Wait 5 minutes and confirm voice sync runs through Docket.
-11. Join voice, use `/voice speak`, wait 5 minutes, confirm auto-leave runs.
+- [ ] JSON memory backend remains behavior-compatible after refactor.
+- [ ] Agent Memory backend formats search results correctly with fake client output.
+- [ ] Agent Memory forget deletes all matching fake memory ids.
+- [ ] Auto-extraction channel guard accepts only `1306464265703522325`.
+- [ ] Auto-extraction task payload is idempotently keyed by message id.
+- [ ] Docket tasks can be called directly as normal async functions.
+- [ ] Docket registration includes pure jobs in worker mode and bot-local jobs in bot mode.
 
 ---
 
@@ -647,15 +422,6 @@ Add a one-shot migration command later:
 voxbot memory migrate-json-to-agent-memory
 ```
 
-Behavior:
-
-- Read `~/.voxbot/soul/people.json`.
-- Convert each fact to a semantic memory.
-- Preserve category as topic.
-- Preserve display names in metadata.
-- Use stable generated IDs if the client supports caller-provided IDs; otherwise
-  rely on AMS deduplication.
-
 Keep the JSON file after migration until the Redis backend has been validated.
 
 ### Rollback
@@ -664,7 +430,6 @@ Rollback is a settings change:
 
 ```text
 SOUL_MEMORY_BACKEND=json
-DOCKET_ENABLED=false
 SOUL_AUTO_EXTRACT_ENABLED=false
 ```
 
