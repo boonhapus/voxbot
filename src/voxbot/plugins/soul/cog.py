@@ -9,7 +9,18 @@ from . import ai
 
 _LOGGER = structlog.get_logger(__name__)
 _MAX_CONVERSATION_TURNS = 20
-_OWNER_ID = 119826797478019075
+
+
+def _primary_owner_id() -> int | None:
+    raw = settings.discord_owner_ids
+    if not raw:
+        return None
+    for token in raw.replace(",", " ").split():
+        try:
+            return int(token)
+        except ValueError:
+            continue
+    return None
 
 
 def _trim_conversation(messages: list[ModelMessage]) -> list[ModelMessage]:
@@ -96,19 +107,28 @@ class SoulCog(commands.GroupCog, name="soul"):
             return
         self._startup_notified = True
 
-        owner = self.bot.get_user(_OWNER_ID) or await self.bot.fetch_user(_OWNER_ID)
+        owner_id = _primary_owner_id()
+        if owner_id is None:
+            _LOGGER.warning("startup_notify_skipped", reason="no_owner_configured")
+            return
+
+        try:
+            owner = self.bot.get_user(owner_id) or await self.bot.fetch_user(owner_id)
+        except discord.HTTPException:
+            _LOGGER.warning("startup_notify_fetch_failed", owner_id=owner_id)
+            return
 
         try:
             await owner.send("Hey! I just came back online.")
         except discord.HTTPException:
-            _LOGGER.warning("startup_notify_dm_failed", owner_id=_OWNER_ID)
+            _LOGGER.warning("startup_notify_dm_failed", owner_id=owner_id)
 
         try:
             await ai.memory_service.remember(
                 message=None,
                 fact="Voxbot just came back online and notified me.",
                 category="life_event",
-                person_id=str(_OWNER_ID),
+                person_id=str(owner_id),
                 person_name=owner.display_name,
             )
         except Exception:
