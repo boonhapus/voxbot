@@ -209,14 +209,14 @@ a VM image and can prompt for credentials. Do it once interactively so launchd
 runs cleanly later.
 
 ```bash
-sudo -u voxbot colima start --cpu 2 --memory 4 --disk 30
-sudo -u voxbot docker ps   # warms the Docker socket
-sudo -u voxbot colima stop # infra-up.sh will restart it
+sudo -u voxbot -i colima start --cpu 2 --memory 4 --disk 30
+sudo -u voxbot -i docker ps   # warms the Docker socket
+sudo -u voxbot -i colima stop # infra-up.sh will restart it
 ```
 
 ```bash
 # verify:
-sudo -u voxbot colima status
+sudo -u voxbot -i colima status
 # expected: colima is not running
 ```
 
@@ -235,13 +235,13 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.voxbot.infra.plist
 
 ```bash
 # verify (give it ~60s on first run while images pull):
-sudo -u voxbot docker ps --format 'table {{.Names}}\t{{.Status}}'
+sudo -u voxbot -i docker ps --format 'table {{.Names}}\t{{.Status}}'
 # expected: redis (healthy), agent-memory-api, agent-memory-worker — all "Up"
 ```
 
 ```bash
 # verify Redis answers with the password:
-sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -u "$REDIS_URL" PING'
+sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" PING'
 # expected: PONG
 ```
 

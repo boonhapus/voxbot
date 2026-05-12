@@ -75,6 +75,12 @@ services:
       - task-worker
       - --concurrency
       - "2"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://host.docker.internal:8000/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
 
 volumes:
   redis-data:
