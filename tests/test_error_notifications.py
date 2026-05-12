@@ -11,9 +11,9 @@ from discord.ext import commands
 class TestErrorNotifications(unittest.IsolatedAsyncioTestCase):
     async def test_notify_owner_called_on_command_error(self) -> None:
         bot = VoxBot()
-        bot.fetch_user = AsyncMock()
-        mock_owner = AsyncMock()
-        bot.fetch_user.return_value = mock_owner
+        bot.fetch_user = AsyncMock(return_value=AsyncMock())
+        mock_owner = bot.fetch_user.return_value
+        mock_owner.send = AsyncMock()
 
         ctx = MagicMock(spec=commands.Context)
         ctx.command = MagicMock()
@@ -25,16 +25,16 @@ class TestErrorNotifications(unittest.IsolatedAsyncioTestCase):
             await bot.on_command_error(ctx, error)
 
         # Verify the notification contains the error detail
+        mock_owner.send.assert_awaited()
         args, _ = mock_owner.send.await_args
         self.assertIn("failed!", args[0])
         self.assertIn("CommandError: test error", args[0])
 
-
     async def test_notify_owner_called_on_event_error(self) -> None:
         bot = VoxBot()
-        bot.fetch_user = AsyncMock()
-        mock_owner = AsyncMock()
-        bot.fetch_user.return_value = mock_owner
+        bot.fetch_user = AsyncMock(return_value=AsyncMock())
+        mock_owner = bot.fetch_user.return_value
+        mock_owner.send = AsyncMock()
 
         error = Exception('event error')
 
