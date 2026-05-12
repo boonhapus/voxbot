@@ -34,13 +34,13 @@ fi
 REL="$APP/releases/$SHA"
 
 if [ ! -d "$REL" ]; then
-  git clone "$APP/mirror" "$REL"
-  git -C "$REL" checkout --detach "$SHA"
+  git clone "$APP/mirror" "$REL" || exit 1
+  git -C "$REL" checkout --detach "$SHA" || { rm -rf "$REL"; exit 1; }
 
   cd "$REL"
-  uv sync --frozen --all-groups
-  uv run --frozen ruff check .
-  uv run --frozen pytest
+  uv sync --frozen --all-groups || { rm -rf "$REL"; exit 1; }
+  uv run --frozen ruff check . || { rm -rf "$REL"; exit 1; }
+  uv run --frozen pytest || { rm -rf "$REL"; exit 1; }
 fi
 
 OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
