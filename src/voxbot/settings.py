@@ -23,9 +23,26 @@ class Settings(pydantic_settings.BaseSettings):
     voc_model: str = "voxtral-mini-tts-2603"
     txt_model: str = "google-gla:gemini-2.5-flash-lite"
     debug_guild: str | None = None
+
+    redis_url: str = "redis://localhost:6379/1"
+    docket_url: str | None = None
+    docket_name: str = "voxbot"
+    docket_enabled: bool = True
+    discord_owner_ids: str | None = None
+
     soul_home_guild_id: str | None = None
-    soul_channel_id: str | None = "1306464265703522325"
+    soul_channel_id: str | None = None
     soul_name_check_interval_seconds: int = pydantic.Field(default=21600, gt=0)
+    soul_memory_backend: str = "json"
+    soul_memory_server_url: str = "http://localhost:8000"
+    soul_memory_namespace: str = "voxbot:soul"
+    soul_auto_extract_enabled: bool = False
+    soul_auto_extract_channel_id: str | None = "1306464265703522325"
+    soul_auto_extract_namespace: str = "voxbot:soul:auto-test"
+
+    health_enabled: bool = True
+    health_heartbeat_seconds: int = pydantic.Field(default=10, gt=0)
+    deployment_id: str | None = None
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",

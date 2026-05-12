@@ -5,8 +5,9 @@ from discord.ext import commands
 import discord
 import structlog
 
+from voxbot.runtime.docket import BotDocketRuntime
+from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
-from voxbot.tasks import VoiceBackgroundTasks
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -24,7 +25,10 @@ class VoxBot(commands.Bot):
             intents=intents,
         )
 
-        self.background_tasks: VoiceBackgroundTasks | None = None
+        self.exit_code = 0
+        self.health_runtime = RedisHealthRuntime(settings)
+        self.docket_runtime = BotDocketRuntime(self)
+        self._health_stopped = False
 
     async def setup_hook(self) -> None:
         """Called once when the bot is starting up."""
@@ -40,6 +44,9 @@ class VoxBot(commands.Bot):
             await self.tree.sync()
             _LOGGER.info("synced_commands_globally")
 
+        await self.health_runtime.start(self)
+        await self.docket_runtime.start()
+
     async def _load_plugins(self) -> None:
         """Load all plugins from plugins/ directory using plugin/cog pattern."""
         project_dir = pathlib.Path(__file__).parent
@@ -52,13 +59,26 @@ class VoxBot(commands.Bot):
 
     async def on_ready(self):
         _LOGGER.info("bot_online", version=importlib.metadata.version("voxbot"))
+        await self.health_runtime.mark_ready(True, bot=self)
 
-        if self.background_tasks is None:
-            # Note: We rely on vox_model and mistral_service being attached by cogs
-            # during their __init__ or in setup_hook. In the old code, cogs did:
-            # bot.mistral_service = self.mistral_service
-            # We'll ensure this still works.
-            self.background_tasks = VoiceBackgroundTasks(
-                self, getattr(self, "mistral_service", None), getattr(self, "vox_model", None)
-            )
-            self.background_tasks.start()
+    async def on_error(self, event_method: str, /, *args, **kwargs) -> None:
+        await self.health_runtime.record_error(f"{event_method} failed")
+        await super().on_error(event_method, *args, **kwargs)
+
+    async def request_shutdown(self, *, reason: str, exit_code: int = 0) -> None:
+        self.exit_code = exit_code
+        _LOGGER.info("bot_shutdown_requested", reason=reason, exit_code=exit_code)
+        await self.close()
+
+    async def request_restart(self, *, reason: str) -> None:
+        await self.health_runtime.record_restart_requested(reason)
+        await self.request_shutdown(reason=reason, exit_code=75)
+
+    async def close(self) -> None:
+        await self.docket_runtime.stop()
+
+        if not self._health_stopped:
+            self._health_stopped = True
+            await self.health_runtime.stop()
+
+        await super().close()

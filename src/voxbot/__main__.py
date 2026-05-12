@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import signal
 
 import cyclopts
 import structlog
@@ -45,21 +47,54 @@ cli = cyclopts.App(help="Voxtral TTS Runner")
 def main() -> int:
     setup_logging()
     _LOGGER.info("starting")
+    return asyncio.run(run_discord_bot())
 
+
+async def run_discord_bot() -> int:
     from voxbot.bot import VoxBot
     from voxbot.settings import settings
 
     bot = VoxBot()
+    _install_bot_signal_handlers(bot)
 
     try:
-        bot.run(settings.discord_token, log_handler=None)
+        await bot.start(settings.discord_token)
     except KeyboardInterrupt:
         _LOGGER.info("shutdown")
         return 0
     except Exception:
         _LOGGER.exception("error")
         return 1
-    return 0
+    finally:
+        if not bot.is_closed():
+            await bot.close()
+
+    return bot.exit_code
+
+
+@cli.command
+def worker() -> int:
+    setup_logging()
+    _LOGGER.info("starting_worker")
+
+    from voxbot.runtime.worker import run_worker
+
+    return asyncio.run(run_worker())
+
+
+def _install_bot_signal_handlers(bot) -> None:
+    loop = asyncio.get_running_loop()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(
+                sig,
+                lambda sig=sig: asyncio.create_task(
+                    bot.request_shutdown(reason=f"{sig.name} received", exit_code=0)
+                ),
+            )
+        except (NotImplementedError, RuntimeError):
+            continue
 
 
 if __name__ == "__main__":

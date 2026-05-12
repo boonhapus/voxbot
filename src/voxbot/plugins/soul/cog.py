@@ -1,5 +1,5 @@
 from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
-from discord.ext import commands, tasks
+from discord.ext import commands
 import discord
 import structlog
 
@@ -30,7 +30,6 @@ class SoulCog(commands.GroupCog, name="soul"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.conversations: dict[int, list[ModelMessage]] = {}
-        self._identity_task: tasks.Loop | None = None
 
     @staticmethod
     def _conversation_key(message: discord.Message) -> int:
@@ -84,46 +83,6 @@ class SoulCog(commands.GroupCog, name="soul"):
                 await self._send_react_action(message, action)
             elif isinstance(action, ai.ThreadAction):
                 await self._send_thread_action(message, action)
-
-    # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
-
-    async def cog_load(self) -> None:
-        """Called when cog is loaded."""
-        self._identity_task = self._create_identity_task()
-        self._identity_task.start()
-        _LOGGER.info("soul_cog_loaded")
-
-    def cog_unload(self) -> None:
-        """Called when cog is unloaded."""
-        if self._identity_task:
-            self._identity_task.cancel()
-
-    def _create_identity_task(self) -> tasks.Loop:
-        @tasks.loop(seconds=settings.soul_name_check_interval_seconds)
-        async def identity_check() -> None:
-            if not settings.soul_home_guild_id:
-                _LOGGER.warning("soul_identity_skipped", reason="missing_home_guild_id")
-                return
-
-            try:
-                result = await ai.soul_agent.run(
-                    "Background identity check: decide whether your home-guild display name should change. "
-                    "If it should, call change_own_display_name once. Return only a silent action.",
-                    deps=ai.DiscordDeps(bot=self.bot),
-                    output_type=ai.DiscordResponse,
-                )
-            except Exception as e:
-                _LOGGER.error("soul_identity_check_failed", error=str(e))
-                return
-
-            action_count = len(result.output.actions) if result.output else 0
-            _LOGGER.info("soul_identity_checked", action_count=action_count)
-
-        @identity_check.before_loop
-        async def before_identity_check() -> None:
-            await self.bot.wait_until_ready()
-
-        return identity_check
 
     # ── EVENT LISTENERS ───────────────────────────────────────────────────────────────
 

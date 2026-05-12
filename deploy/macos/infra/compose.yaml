@@ -1,0 +1,80 @@
+services:
+  redis:
+    image: redis/redis-stack-server:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    environment:
+      REDIS_ARGS: "--requirepass ${REDIS_PASSWORD} --appendonly yes"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  agent-memory-api:
+    image: redislabs/agent-memory-server:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      GENERATION_MODEL: "${GENERATION_MODEL}"
+      FAST_MODEL: "${FAST_MODEL}"
+      SLOW_MODEL: "${SLOW_MODEL}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL}"
+      REDISVL_VECTOR_DIMENSIONS: "${REDISVL_VECTOR_DIMENSIONS}"
+      OLLAMA_API_BASE: "${OLLAMA_API_BASE}"
+      LONG_TERM_MEMORY: "true"
+      ENABLE_DISCRETE_MEMORY_EXTRACTION: "true"
+      INDEX_ALL_MESSAGES_IN_LONG_TERM_MEMORY: "false"
+      AUTH_MODE: "disabled"
+      LOG_LEVEL: "INFO"
+      DOCKET_NAME: "memory-server"
+    command:
+      - agent-memory
+      - api
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+
+  agent-memory-worker:
+    image: redislabs/agent-memory-server:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      GENERATION_MODEL: "${GENERATION_MODEL}"
+      FAST_MODEL: "${FAST_MODEL}"
+      SLOW_MODEL: "${SLOW_MODEL}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL}"
+      REDISVL_VECTOR_DIMENSIONS: "${REDISVL_VECTOR_DIMENSIONS}"
+      OLLAMA_API_BASE: "${OLLAMA_API_BASE}"
+      DOCKET_NAME: "memory-server"
+      LOG_LEVEL: "INFO"
+    command:
+      - agent-memory
+      - task-worker
+      - --concurrency
+      - "2"
+
+volumes:
+  redis-data:
