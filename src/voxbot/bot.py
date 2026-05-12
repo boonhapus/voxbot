@@ -36,6 +36,7 @@ class VoxBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Called once when the bot is starting up."""
+        await self.health_runtime.start(self)
         await self._load_plugins()
 
         # Sync slash commands. Global syncs are rate-limited (2/hr), so skip
@@ -55,7 +56,6 @@ class VoxBot(commands.Bot):
                 _write_command_hash(current_hash)
                 _LOGGER.info("synced_commands_globally", hash=current_hash[:12])
 
-        await self.health_runtime.start(self)
         asyncio.create_task(self.docket_runtime.start(), name="voxbot-docket-runtime")
 
     async def _load_plugins(self) -> None:
