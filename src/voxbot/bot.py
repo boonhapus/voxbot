@@ -1,5 +1,7 @@
 import asyncio
+import hashlib
 import importlib.metadata
+import json
 import pathlib
 
 from discord.ext import commands
@@ -11,6 +13,7 @@ from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
 
 _LOGGER = structlog.get_logger(__name__)
+_COMMAND_HASH_PATH = pathlib.Path.home() / ".voxbot" / "commands.sha"
 
 
 class VoxBot(commands.Bot):
@@ -35,15 +38,22 @@ class VoxBot(commands.Bot):
         """Called once when the bot is starting up."""
         await self._load_plugins()
 
-        # Sync slash commands
+        # Sync slash commands. Global syncs are rate-limited (2/hr), so skip
+        # them when the command tree is unchanged since the last successful sync.
         if settings.debug_guild:
             guild = discord.Object(id=int(settings.debug_guild))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             _LOGGER.info("synced_commands_to_debug_guild", guild_id=settings.debug_guild)
         else:
-            await self.tree.sync()
-            _LOGGER.info("synced_commands_globally")
+            current_hash = _hash_command_tree(self.tree)
+            previous_hash = _read_previous_command_hash()
+            if current_hash == previous_hash:
+                _LOGGER.info("skipped_global_sync_unchanged", hash=current_hash[:12])
+            else:
+                await self.tree.sync()
+                _write_command_hash(current_hash)
+                _LOGGER.info("synced_commands_globally", hash=current_hash[:12])
 
         await self.health_runtime.start(self)
         asyncio.create_task(self.docket_runtime.start(), name="voxbot-docket-runtime")
@@ -83,3 +93,25 @@ class VoxBot(commands.Bot):
             await self.health_runtime.stop()
 
         await super().close()
+
+
+def _hash_command_tree(tree: discord.app_commands.CommandTree) -> str:
+    payloads = [cmd.to_dict(tree) for cmd in tree.get_commands()]
+    payloads.sort(key=lambda d: d.get("name", ""))
+    blob = json.dumps(payloads, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _read_previous_command_hash() -> str | None:
+    try:
+        return _COMMAND_HASH_PATH.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def _write_command_hash(value: str) -> None:
+    try:
+        _COMMAND_HASH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _COMMAND_HASH_PATH.write_text(value, encoding="utf-8")
+    except OSError as err:
+        _LOGGER.warning("command_hash_write_failed", error=str(err))
