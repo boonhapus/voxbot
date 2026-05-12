@@ -83,7 +83,7 @@ class VoxBot(commands.Bot):
                 owner = self.get_user(owner_id) or await self.fetch_user(owner_id)
 
                 if owner:
-                    error_message_parts = [f"🚨 Bot Error Occurred!"]
+                    error_message_parts = ["🚨 Bot Error Occurred!"]
                     error_message_parts.append(f"**Event/Method:** `{event_method}`")
 
                     # Attempt to extract the exception details
