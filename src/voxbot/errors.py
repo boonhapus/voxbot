@@ -1,4 +1,5 @@
 """Custom exceptions for voxbot."""
+from discord.ext import commands
 
 
 class VoxBotError(Exception):
@@ -19,3 +20,17 @@ class TTSError(VoxBotError):
 
 class WikiError(VoxBotError):
     """Dota wiki scraping error."""
+
+
+class RedisError(VoxBotError):
+    """Redis error."""
+
+
+# ── BOT ERRORS ────────────────────────────────────────────────────────────────────────
+
+class VoxCheckFailure(commands.CheckFailure):
+    """When a user fails any of our custom checks."""
+
+
+class NotAnAdmin(VoxCheckFailure):
+    """User is not an admin."""
