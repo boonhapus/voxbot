@@ -126,7 +126,7 @@ sudo -u voxbot ssh -T git@github.com-voxbot
 sudo -u voxbot tee /Users/voxbot/secrets/voxbot.env >/dev/null <<'EOF'
 # ── Voxbot ──────────────────────────────────────────────────────────────
 DISCORD_TOKEN=
-DISCORD_OWNER_IDS=
+BOT_OWNER_ID=
 MISTRAL_API_KEY=
 GOOGLE_API_KEY=
 GEMINI_API_KEY=

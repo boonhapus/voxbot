@@ -4,6 +4,8 @@ import discord
 
 
 class IdentityService:
+    """ """
+
     def __init__(self, home_guild_id: str | None = None) -> None:
         self.home_guild_id = home_guild_id
 
@@ -17,15 +19,10 @@ class IdentityService:
         except ValueError:
             return f"- Home guild id is invalid: {configured_guild_id}"
 
-        guild = bot.get_guild(guild_id)
-        if guild is None:
+        if (guild := bot.get_guild(guild_id)) is None:
             return f"- Home guild {guild_id} is not currently available."
 
-        member = guild.me
-        if member is None:
-            return f"- Home guild: {guild.name} ({guild.id}); current display name is unavailable."
-
-        return f"- Home guild: {guild.name} ({guild.id}); current display name: {member.display_name}"
+        return f"- Home guild: {guild.name} ({guild.id}); current display name: {guild.me.display_name}"
 
     @staticmethod
     def normalize_display_name(display_name: str) -> str:

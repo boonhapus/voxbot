@@ -12,7 +12,7 @@ _MAX_CONVERSATION_TURNS = 20
 
 
 def _primary_owner_id() -> int | None:
-    raw = settings.discord_owner_ids
+    raw = settings.bot_owner_id
     if not raw:
         return None
     for token in raw.replace(",", " ").split():

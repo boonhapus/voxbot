@@ -1,5 +1,3 @@
-"""AI helpers for generated voice lines."""
-
 from pydantic_ai import Agent
 import structlog
 

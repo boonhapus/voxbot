@@ -14,10 +14,10 @@ import structlog
 
 from voxbot import dota_wiki
 from voxbot.errors import MistralError, TTSError
-from voxbot.model import VoxModel
 from voxbot.services.mistral import MistralService
 from voxbot.services.tts import TTSProcessor
 
+from .model import VoxModel
 from . import ai
 from . import state
 
