@@ -1,7 +1,7 @@
 from discord.ext import commands
 import structlog
 
-from . import cog
+from . import cog, jobs
 
 _LOGGER = structlog.get_logger(__name__)
 
