@@ -1,19 +1,12 @@
 import asyncio
 import logging
-import signal
 
 import cyclopts
 import structlog
 
+from voxbot import __project__
+
 _LOGGER = structlog.get_logger(__name__)
-
-
-def setup_ssl() -> None:
-    import os
-    import certifi
-    ca = certifi.where()
-    os.environ.setdefault("SSL_CERT_FILE", ca)
-    os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
 
 
 def setup_logging() -> None:
@@ -48,32 +41,37 @@ def setup_logging() -> None:
     )
 
 
-cli = cyclopts.App(help="Voxtral TTS Runner")
+cli = cyclopts.App(
+    name=__project__.__name__.title(),
+    help="A memory-capable TTS Discord bot built with discord.py, Songbird (Rust), and powered by Mistral and Gemini.",
+    version=__project__.__version__,
+)
 
 
-@cli.default
-def main() -> int:
-    setup_ssl()
-    setup_logging()
-    _LOGGER.info("starting")
-    return asyncio.run(run_discord_bot())
-
-
-async def run_discord_bot() -> int:
-    from voxbot.bot import VoxBot
+@cli.command
+async def bot() -> int:
+    """Run the Discord bot."""
     from voxbot.settings import settings
+    from voxbot.store import runtime
+    from voxbot.bot import VoxBot
+
+    setup_logging()
+
+    _LOGGER.info("starting")
 
     bot = VoxBot()
-    _install_bot_signal_handlers(bot)
 
     try:
         await bot.start(settings.discord_token)
+
     except KeyboardInterrupt:
         _LOGGER.info("shutdown")
         return 0
+
     except Exception:
         _LOGGER.exception("error")
         return 1
+
     finally:
         if not bot.is_closed():
             await bot.close()
@@ -82,29 +80,17 @@ async def run_discord_bot() -> int:
 
 
 @cli.command
-def worker() -> int:
-    setup_ssl()
-    setup_logging()
-    _LOGGER.info("starting_worker")
-
+async def worker() -> int:
+    """Run the external docket process."""
     from voxbot.runtime.worker import run_worker
 
-    return asyncio.run(run_worker())
+    setup_logging()
 
+    _LOGGER.info("starting_worker")
 
-def _install_bot_signal_handlers(bot) -> None:
-    loop = asyncio.get_running_loop()
+    exit_code = await run_worker()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(
-                sig,
-                lambda sig=sig: asyncio.create_task(
-                    bot.request_shutdown(reason=f"{sig.name} received", exit_code=0)
-                ),
-            )
-        except (NotImplementedError, RuntimeError):
-            continue
+    return exit_code
 
 
 if __name__ == "__main__":

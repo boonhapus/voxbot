@@ -1,8 +1,12 @@
 import asyncio
 import hashlib
-import importlib.metadata
 import json
+import io
 import pathlib
+import signal
+import sys
+import textwrap
+import traceback
 
 from discord.ext import commands
 import discord
@@ -11,156 +15,202 @@ import structlog
 from voxbot.runtime.docket import BotDocketRuntime
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
+from voxbot.store import runtime
+from voxbot import __project__, errors, utils
 
 _LOGGER = structlog.get_logger(__name__)
-_COMMAND_HASH_PATH = pathlib.Path.home() / ".voxbot" / "commands.sha"
 
 
 class VoxBot(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.guilds = True
-        intents.guild_messages = True
-        intents.voice_states = True
-        intents.message_content = True
+    """
+    Vox 🦜, the bot.
+    
+    BOT LIFECYCLE
+      .__init__
+      .setup_hook
+      .login
+      .on_connect / .on_resumed
+      .on_ready
+      .on_error
+      .on_disconnect
+    """
 
+    def __init__(self):
         super().__init__(
-            command_prefix="!",  # Required by d.py, but we use slash commands
-            intents=intents,
+            command_prefix="!",  # DEV NOTE: We used /slash commands everywhere, but d.py requires this internally.
+            intents=settings.required_intents,
         )
 
+        # Internal background tasks. All external background tasks will be added to DocketRuntime.
+        self._running_tasks: set[asyncio.Task] = set()
+
         self.exit_code = 0
-        self.health_runtime = RedisHealthRuntime(settings)
+        self.health_runtime = RedisHealthRuntime()
         self.docket_runtime = BotDocketRuntime(self)
-        self._health_stopped = False
 
-    async def setup_hook(self) -> None:
-        """Called once when the bot is starting up."""
-        await self.health_runtime.start(self)
-        await self._load_plugins()
+    def _install_bot_signal_handlers(self) -> None:
+        """Handle shutdown events from the OS."""
+        loop = asyncio.get_running_loop()
 
-        # Sync slash commands. Global syncs are rate-limited (2/hr), so skip
-        # them when the command tree is unchanged since the last successful sync.
-        if settings.debug_guild:
-            guild = discord.Object(id=int(settings.debug_guild))
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            _LOGGER.info("synced_commands_to_debug_guild", guild_id=settings.debug_guild)
-        else:
-            current_hash = _hash_command_tree(self.tree)
-            previous_hash = _read_previous_command_hash()
-            if current_hash == previous_hash:
-                _LOGGER.info("skipped_global_sync_unchanged", hash=current_hash[:12])
-            else:
-                await self.tree.sync()
-                _write_command_hash(current_hash)
-                _LOGGER.info("synced_commands_globally", hash=current_hash[:12])
+        def handle_signal(s: signal.Signals) -> None:
+            reason = f"{s.name} received"
+            coro = self.request_shutdown(reason=reason, exit_code=0)
+            task = asyncio.create_task(coro, name=f"voxbot-{reason.replace(' ', '-')}")
+            utils.no_task_dangling(task, struct=self._running_tasks)
 
-        asyncio.create_task(self.docket_runtime.start(), name="voxbot-docket-runtime")
+        for sig_num in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig_num, handle_signal, sig_num)
+            except (NotImplementedError, RuntimeError):
+                continue
 
     async def _load_plugins(self) -> None:
-        """Load all plugins from plugins/ directory using plugin/cog pattern."""
-        project_dir = pathlib.Path(__file__).parent
-
-        for subdir in project_dir.glob("plugins/*/"):
+        """Load all Cogs from the plugins directory."""
+        for subdir in runtime.library_root.glob("plugins/*/"):
             if not (subdir / "__init__.py").exists():
                 continue
 
             await self.load_extension(name=f"voxbot.plugins.{subdir.name}")
+    
+    async def _determine_tree_needs_sync(self) -> None:
+        """Sync the CommandTree if it's necessary."""
+        # DEV NOTE: 
+        #   Global syncs are rate-limited (2/hr), so skip them when the
+        #   command tree is unchanged since the last successful sync.
+        #
+        #   This bot was never intended to be sharded / global, so this
+        #   is safe to run consistently, but we still can skip it if the
+        #   commands haven't changed.
+        this_hash = utils.hash_command_tree(self.tree)
+        last_hash = runtime.commands_sha.read_text(encoding="utf-8").strip()
 
-    async def on_ready(self):
-        _LOGGER.info("bot_online", version=importlib.metadata.version("voxbot"))
+        if this_hash == last_hash:
+            _LOGGER.info("skipped_global_sync_unchanged", hash=this_hash[:12])
+            return
+        
+        if settings.debug_guild:
+            guild = discord.Object(id=settings.debug_guild)
+            self.tree.copy_global_to(guild=guild)
+        else:
+            guild = None
+
+        await self.tree.sync(guild=guild)
+        runtime.commands_sha.write_text(this_hash, encoding="utf-8")
+
+        _LOGGER.info("synced_commands", hash=this_hash[:12], guild=settings.debug_guild or "globally")
+    
+
+    # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
+
+    async def setup_hook(self) -> None:
+        """
+        Called once when the bot is starting up.
+
+        Further reading:
+          https://discordpy.readthedocs.io/en/stable/api.html#discord.setup_hook
+        """
+        runtime.ensure_directories()
+
+        self._install_bot_signal_handlers()
+
+        await self.health_runtime.start(self)
+        await self._load_plugins()
+        await self._determine_tree_needs_sync()
+
+        # Manages its own async lifecycle.
+        self.docket_runtime.start()
+
+    async def on_ready(self) -> None:
+        """
+        Called when the client is done preparing the data received from Discord.
+        
+        Further reading:
+          https://discordpy.readthedocs.io/en/stable/api.html#discord.on_ready
+        """
+        _LOGGER.info("bot_online", version=__project__.__version__)
         await self.health_runtime.mark_ready(True, bot=self)
 
-    async def on_error(self, event_method: str, /, *args, **kwargs) -> None:
-        """Handle errors that occur during event processing or command execution."""
-        await self.health_runtime.record_error(f"{event_method} failed")
+    async def on_error(self, event_method: str, *args, **kwargs) -> None:
+        """
+        Handle errors that occur during event processing or command execution.
         
-        # Attempt to extract exception from arguments if present
-        error_detail = None
-        if 'error' in kwargs:
-            error_detail = kwargs['error']
-        elif args:
-            for arg in args:
-                if isinstance(arg, Exception):
-                    error_detail = arg
-                    break
+        Further reading:
+          https://discordpy.readthedocs.io/en/stable/api.html#discord.on_error
+        """
+        await self.health_runtime.record_error(exc=Exception(f"{event_method} failed"))
 
-        error_message = f"🚨 Bot Error in `{event_method}`!"
-        if error_detail:
-             error_message += f"\n**Details:**\n```\n{type(error_detail).__name__}: {error_detail}\n```"
-        else:
-             error_message += f"\n**Arguments:** `{args}`"
-             error_message += f"\n**Keyword Arguments:** `{kwargs}`"
+        exc_type, exc, tb = sys.exc_info()
+        error_detail = exc or Exception(f"Unknown error in {event_method}")
+
+        # Record to health runtime
+        await self.health_runtime.record_error(exc=error_detail)
+
+        # Format the traceback
+        # We use 'jump_url' style or code blocks for the traceback
+        trace_str = "".join(traceback.format_exception(exc_type, exc, tb))
         
-        await self._notify_owner(error_message)
+        full_output = (
+            f"🚨 **Bot Error in `{event_method}`**\n"
+            f"**Details:** `{type(error_detail).__name__}: {error_detail}`\n"
+            f"**args:** `{args}`\n"
+            f"**kwargs:** `{kwargs}`\n\n"
+            f"**Traceback:**\n```py\n{trace_str}\n```"
+        )
 
-        # Always call the superclass method to ensure default error handling
+        if owner := self.get_user(settings.bot_owner_id):
+            await owner.send(
+                f"Error occurred in {event_method}",
+                file=discord.File(io.BytesIO(full_output.encode('utf-8')), filename="error_log.txt")
+            )
+
         await super().on_error(event_method, *args, **kwargs)
 
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
-        """Handle errors that occur during command execution."""
-        _LOGGER.error("command_error", error=str(error), command=ctx.command.name if ctx.command else "unknown")
-        await self.health_runtime.record_error(f"Command {ctx.command} failed: {error}")
+        """
+        Handle errors that occur during command execution.
         
-        await self._notify_owner(f"🚨 Command `{ctx.command}` failed!\n**Error:**\n```\n{type(error).__name__}: {error}\n```")
+        Further reading:
+          https://discordpy.readthedocs.io/en/stable/api.html#discord.on_command_error
+        """
+        _LOGGER.error("command_error", error=str(error), command=ctx.command.name if ctx.command else "unknown")
+
+        await self.health_runtime.record_error(exc=error)
+
+        if isinstance(error, errors.VoxCheckFailure):
+            await ctx.send(str(error), ephemeral=True)
+
+        if owner := self.get_user(settings.bot_owner_id):
+            await owner.send(
+                textwrap.dedent(
+                    f"""
+                    🚨 Command `{ctx.command}` failed!
+                    ```
+                    {type(error).__name__}: {error}
+                    ```
+                    """
+                )
+            )
 
         await super().on_command_error(ctx, error)
 
-    async def _notify_owner(self, message: str) -> None:
-        """Helper to send DM notification to owner."""
-        owner_id_str = settings.discord_owner_ids
-        if not owner_id_str:
-            return
-
-        try:
-            owner_id = int(owner_id_str.split(',')[0])
-            owner = self.get_user(owner_id) or await self.fetch_user(owner_id)
-            if owner:
-                try:
-                    await owner.send(message)
-                    _LOGGER.info("sent_error_dm_to_owner", owner_id=owner_id)
-                except discord.Forbidden:
-                    _LOGGER.warning("failed_to_send_dm_to_owner", owner_id=owner_id, reason="DM blocked by user.")
-        except Exception as e:
-            _LOGGER.warning("error_while_preparing_dm", error=str(e))
-
     async def request_shutdown(self, *, reason: str, exit_code: int = 0) -> None:
+        """Politely stop the Bot."""
         self.exit_code = exit_code
+
         _LOGGER.info("bot_shutdown_requested", reason=reason, exit_code=exit_code)
+
         await self.close()
 
     async def request_restart(self, *, reason: str) -> None:
+        """Enqueue a restart.."""
         await self.health_runtime.record_restart_requested(reason)
         await self.request_shutdown(reason=reason, exit_code=75)
 
     async def close(self) -> None:
+        """Close the bot, stopping each runtime."""
+        # DEV NOTE:
+        #   Ordered stop (docket -> health) because DurableTasks may try to push
+        #   notifications to Redis.
         await self.docket_runtime.stop()
-
-        if not self._health_stopped:
-            self._health_stopped = True
-            await self.health_runtime.stop()
-
+        await self.health_runtime.stop()
         await super().close()
-
-
-def _hash_command_tree(tree: discord.app_commands.CommandTree) -> str:
-    payloads = [cmd.to_dict(tree) for cmd in tree.get_commands()]
-    payloads.sort(key=lambda d: d.get("name", ""))
-    blob = json.dumps(payloads, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(blob).hexdigest()
-
-
-def _read_previous_command_hash() -> str | None:
-    try:
-        return _COMMAND_HASH_PATH.read_text(encoding="utf-8").strip() or None
-    except OSError:
-        return None
-
-
-def _write_command_hash(value: str) -> None:
-    try:
-        _COMMAND_HASH_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _COMMAND_HASH_PATH.write_text(value, encoding="utf-8")
-    except OSError as err:
-        _LOGGER.warning("command_hash_write_failed", error=str(err))
