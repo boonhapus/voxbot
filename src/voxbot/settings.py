@@ -3,6 +3,7 @@ import os
 
 import pydantic_settings
 import pydantic
+import discord
 
 import structlog
 
@@ -12,35 +13,41 @@ _LOGGER = structlog.get_logger(__name__)
 class Settings(pydantic_settings.BaseSettings):
     """Bot configuration loaded from .env file."""
 
-    discord_token: str = pydantic.Field(
-        repr=False,
-        json_schema_extra={"mirror_to_os.environ": True},
-    )
+    # ── SECRETS ───────────────────────────────────────────────────────────────────────
+
+    discord_token: str = pydantic.Field(repr=False, json_schema_extra={"mirror_to_os.environ": True})
     """https://discord.com/developers/applications/1487888280061083708/bot"""
 
-    mistral_api_key: str = pydantic.Field(
-        repr=False,
-        json_schema_extra={"mirror_to_os.environ": True},
-    )
+    mistral_api_key: str = pydantic.Field(repr=False, json_schema_extra={"mirror_to_os.environ": True})
     """https://console.mistral.ai/home?profile_dialog=api-keys"""
 
-    google_api_key: str = pydantic.Field(
-        repr=False,
-        json_schema_extra={"mirror_to_os.environ": True},
-    )
+    google_api_key: str = pydantic.Field(repr=False, json_schema_extra={"mirror_to_os.environ": True})
+    """https://aistudio.google.com/projects?project=gen-lang-client-0686028511"""
+
+
+    # ── AI SETTINGS ───────────────────────────────────────────────────────────────────
 
     voc_model: str = "voxtral-mini-tts-2603"
     txt_model: str = "google-gla:gemini-2.5-flash-lite"
-    debug_guild: str | None = None
 
-    redis_url: str = pydantic.Field(
-        default="redis://localhost:6379/1",
-        repr=False,
-    )
-    docket_url: str | None = pydantic.Field(default=None, repr=False)
-    docket_name: str = "voxbot"
-    docket_enabled: bool = True
-    discord_owner_ids: str | None = None
+
+    # ── METADATA ──────────────────────────────────────────────────────────────────────
+
+    debug_guild: int | None = None
+    bot_owner_id: int
+
+
+    # ── METADATA ──────────────────────────────────────────────────────────────────────
+
+    voxbot_release_sha: str | None = None
+
+
+    # ── DURABLE STORE ─────────────────────────────────────────────────────────────────
+
+    redis_url: str = pydantic.Field(default="redis://localhost:6379/1", repr=False)
+
+
+    # ── FEATURE FLAGS ─────────────────────────────────────────────────────────────────
 
     soul_home_guild_id: str | None = None
     soul_channel_ids: list[str] = pydantic.Field(default_factory=list)
@@ -52,9 +59,6 @@ class Settings(pydantic_settings.BaseSettings):
     soul_auto_extract_channel_id: str | None = "1306464265703522325"
     soul_auto_extract_namespace: str = "voxbot:soul:auto-test"
 
-    health_enabled: bool = True
-    health_heartbeat_seconds: int = pydantic.Field(default=10, gt=0)
-    deployment_id: str | None = None
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",
@@ -82,6 +86,21 @@ class Settings(pydantic_settings.BaseSettings):
                 os.environ[env_key] = str(val)
 
         return self
+    
+    @property
+    def required_intents(self) -> discord.Intents:
+        """
+        The bot permissions in order to run.
+        
+        Further reading:
+          https://discord.com/developers/applications/1487888280061083708/bot
+          https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents
+          https://discordpy.readthedocs.io/en/latest/intents.html
+        """
+        # DEV NOTE:
+        #   We used to be selective about intents, but then we realized all the cool
+        #   interactivity was behind all the privileged intents anyway.
+        return discord.Intents.all()
 
 
 settings = Settings()
