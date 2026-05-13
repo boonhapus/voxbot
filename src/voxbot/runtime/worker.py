@@ -1,15 +1,13 @@
-from __future__ import annotations
-
 import asyncio
-from contextlib import suppress
 import signal
 
-from docket import Docket, Worker
+import docket
 import structlog
 
-from voxbot.runtime.docket import register_pure_background_tasks
+from voxbot.runtime.docket import DurableTasks
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
+from voxbot import __project__
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -17,63 +15,55 @@ _LOGGER = structlog.get_logger(__name__)
 async def run_worker() -> int:
     """Run the external Docket worker process."""
     stop_event = asyncio.Event()
-    _install_signal_handlers(stop_event)
 
-    health = RedisHealthRuntime(settings, key_prefix="voxbot:worker:health")
+
+    # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
+
+    loop = asyncio.get_running_loop()
+
+    for sig_num in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig_num, stop_event.set)
+        except (NotImplementedError, RuntimeError):
+            continue
+
+
+    # ── LOOP FOREVER ──────────────────────────────────────────────────────────────────
+
+    health = RedisHealthRuntime(key_prefix="voxbot:worker:health")
+
     await health.start()
 
     try:
-        if not settings.docket_enabled:
-            _LOGGER.info("docket_worker_disabled")
-            await health.mark_ready(True)
-            await stop_event.wait()
-            return 0
+        async with docket.Docket(name=__project__.__name__, url=settings.redis_url) as d:
+            _LOGGER.info("docket_worker_registered_tasks", task_count=len(DurableTasks.get_tasks()))
 
-        docket_url = settings.docket_url or settings.redis_url
-        async with Docket(name=settings.docket_name, url=docket_url) as docket:
-            task_count = register_pure_background_tasks(docket)
-            _LOGGER.info("docket_worker_registered_tasks", task_count=task_count)
-
-            async with Worker(docket) as worker:
+            async with docket.Worker(d) as worker:
                 await health.mark_ready(True)
-                worker_task = asyncio.create_task(worker.run_forever(), name="voxbot-docket-worker")
-                stop_task = asyncio.create_task(stop_event.wait(), name="voxbot-worker-stop")
 
-                done, pending = await asyncio.wait(
-                    {worker_task, stop_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                try:
+                    async with asyncio.TaskGroup() as g:
+                        worker_task = g.create_task(worker.run_forever(), name="voxbot-docket-worker")
 
-                for task in pending:
-                    task.cancel()
-                for task in pending:
-                    with suppress(asyncio.CancelledError):
-                        await task
+                        # Wait for a SIGINT / SIGTERM.
+                        await stop_event.wait()
 
-                if worker_task in done:
-                    await worker_task
-                else:
-                    worker_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await worker_task
+                        # This will raise asyncio.CancelledError, breaking us from the loop.
+                        worker_task.cancel()
+
+                except asyncio.CancelledError:
+                    _LOGGER.info("docket_worker_shutting_down")
 
         return 0
+
     except KeyboardInterrupt:
         _LOGGER.info("docket_worker_interrupted")
         return 0
-    except Exception as err:
-        await health.record_error(str(err))
+
+    except Exception as e:
+        await health.record_error(exc=e)
         _LOGGER.exception("docket_worker_failed")
         return 1
+
     finally:
         await health.stop()
-
-
-def _install_signal_handlers(stop_event: asyncio.Event) -> None:
-    loop = asyncio.get_running_loop()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, stop_event.set)
-        except (NotImplementedError, RuntimeError):
-            continue
