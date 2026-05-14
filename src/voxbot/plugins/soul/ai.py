@@ -1,4 +1,3 @@
-from typing import Annotated
 import dataclasses
 
 from pydantic_ai import Agent, ModelSettings, RunContext
@@ -7,8 +6,8 @@ import pydantic
 
 from voxbot.settings import settings
 
-from .settings import soul_settings
 from .actions import BotAIActionT
+from .errors import NoMemoryFound
 from .memory import Memories, MemoryCategory
 from . import utils
 
@@ -138,7 +137,7 @@ async def forget_person_fact(
     person: str | int | None = None,
 ) -> str:
     """Remove saved facts when a user asks Voxbot to forget or correct stale information."""
-    cleaned_fact = " ".join(fact.strip().split())
+    cleaned_fact = " ".join(fact_fragment.strip().split())
 
     if not cleaned_fact and category is None:
         return "No memory forgotten because neither a fact nor category was provided."

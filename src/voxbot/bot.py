@@ -1,8 +1,5 @@
 import asyncio
-import hashlib
-import json
 import io
-import pathlib
 import signal
 import sys
 import textwrap

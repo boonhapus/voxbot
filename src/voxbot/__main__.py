@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import cyclopts
@@ -52,7 +51,6 @@ cli = cyclopts.App(
 async def bot() -> int:
     """Run the Discord bot."""
     from voxbot.settings import settings
-    from voxbot.store import runtime
     from voxbot.bot import VoxBot
 
     setup_logging()

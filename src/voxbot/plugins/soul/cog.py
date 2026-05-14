@@ -1,4 +1,3 @@
-import collections
 
 from pydantic_ai.messages import ModelMessage
 from discord.ext import commands

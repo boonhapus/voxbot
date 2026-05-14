@@ -8,7 +8,7 @@ Design:
   * On init: replay WAL over base snapshot → crash recovery.
   * Checkpoint: atomically flush cache to main file, then truncate WAL.
 """
-from typing import Any, Protocol, TypedDict
+from typing import Any
 import enum
 import asyncio
 import contextlib

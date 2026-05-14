@@ -42,7 +42,7 @@ class HealthReport(pydantic.BaseModel):
 
         except Exception as exc:
             _LOGGER.error("redis_health_read_failed", error=str(exc))
-            raise errors.RedisError("Redis health read failed") from e
+            raise errors.RedisError("Redis health read failed") from exc
 
     @property
     def short_sha(self) -> str:
@@ -58,13 +58,13 @@ class HealthReport(pydantic.BaseModel):
 
     def __str__(self) -> str:
         lines = [
-            f"**Bot Status**",
+            "**Bot Status**",
             f"Ready: {self.ready}",
             f"Release: `{self.short_sha}`",
             f"Heartbeat: {self.format_age(self.heartbeat_unix)}",
             f"Latency: {self.latency_ms}ms",
             "---",
-            f"**Worker Status**",
+            "**Worker Status**",
             f"Ready: {self.worker_ready}",
             f"Release: `{self.worker_short_sha}`",
             f"Heartbeat: {self.format_age(self.worker_heartbeat_unix)}",
