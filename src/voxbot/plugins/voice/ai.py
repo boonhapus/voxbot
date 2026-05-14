@@ -30,5 +30,6 @@ async def generate_line(prompt: str, dota_hero: str | None = None) -> str:
 
     result = await voice_line_agent.run("\n".join(parts))
     line = result.output.strip().strip('"').strip("'").strip()
+
     _LOGGER.info("ai_line_generated", hero=dota_hero, prompt_len=len(prompt), output_len=len(line))
     return line

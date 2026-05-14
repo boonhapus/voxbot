@@ -7,27 +7,26 @@ import structlog
 
 from voxbot.runtime.docket import BotDocketRuntime, durable_task
 
+from .state import mistral_service, vox_model
+
 _LOGGER = structlog.get_logger(__name__)
+
+IDLE_DISCONNECT_SECONDS = 300
 
 
 @durable_task
-async def sync_voices(perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=300), automatic=True)) -> None:
-    """Sync available voices from Mistral API."""
-    from voxbot.services.mistral import MistralService
-
+async def sync_voices(
+    perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=300), automatic=True),
+) -> None:
+    """Sync available voices from the Mistral API."""
     _LOGGER.info("job_sync_voices_started")
 
-    try:
-        service = MistralService()
+    added = await mistral_service.sync_voices()
 
-        if added := await service.sync_voices():
-            _LOGGER.info("job_sync_voices_completed", added_count=len(added))
-        else:
-            _LOGGER.info("job_sync_voices_no_new_voices")
-
-    except Exception as exc:
-        _LOGGER.error("job_sync_voices_failed", error=str(exc))
-        raise
+    if added:
+        _LOGGER.info("job_sync_voices_completed", added_count=len(added))
+    else:
+        _LOGGER.info("job_sync_voices_no_new_voices")
 
 
 @durable_task
@@ -35,31 +34,17 @@ async def auto_leave_voice_clients(
     bot: commands.Bot = Depends(BotDocketRuntime.fetch_bot_instance),
     perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=60), automatic=True),
 ) -> None:
-    """Auto-disconnect voice clients inactive for 5 minutes."""
+    """Auto-disconnect voice clients idle past the disconnect threshold."""
     _LOGGER.info("job_auto_leave_started")
-    try:
-        vox_model = getattr(bot, "vox_model", None)
-        if vox_model is None:
-            _LOGGER.warning("job_auto_leave_aborted_no_vox_model")
-            return
 
-        now = time.monotonic()
-        threshold = 300  # 5 minutes
-        expired = [
-            gid
-            for gid, t in vox_model.last_active.items()
-            if now - t > threshold
-        ]
+    now = time.monotonic()
+    expired = [gid for gid, t in vox_model.last_active.items() if now - t > IDLE_DISCONNECT_SECONDS]
 
-        for guild_id in expired:
-            for vc in bot.voice_clients:
-                if vc.guild.id == guild_id:
-                    await vc.disconnect()
-                    _LOGGER.info("job_auto_leave_disconnected", guild_id=guild_id)
-                    break
-            vox_model.last_active.pop(guild_id, None)
+    for guild_id in expired:
+        for vc in bot.voice_clients:
+            if vc.guild.id == guild_id:
+                await vc.disconnect()
+                _LOGGER.info("job_auto_leave_disconnected", guild_id=guild_id)
+                break
 
-    except Exception as exc:
-        _LOGGER.error("job_auto_leave_failed", error=str(exc))
-        raise
-
+        vox_model.last_active.pop(guild_id, None)
