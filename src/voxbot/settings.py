@@ -33,7 +33,7 @@ class Settings(pydantic_settings.BaseSettings):
 
     # ── METADATA ──────────────────────────────────────────────────────────────────────
 
-    debug_guild: int | None = None
+    debug_guild: int
     bot_owner_id: int
 
 
@@ -45,19 +45,6 @@ class Settings(pydantic_settings.BaseSettings):
     # ── DURABLE STORE ─────────────────────────────────────────────────────────────────
 
     redis_url: str = pydantic.Field(default="redis://localhost:6379/1", repr=False)
-
-
-    # ── FEATURE FLAGS ─────────────────────────────────────────────────────────────────
-
-    soul_home_guild_id: str | None = None
-    soul_channel_ids: list[str] = pydantic.Field(default_factory=list)
-    soul_name_check_interval_seconds: int = pydantic.Field(default=21600, gt=0)
-    soul_memory_backend: str = "json"
-    soul_memory_server_url: str = "http://localhost:8000"
-    soul_memory_namespace: str = "voxbot:soul"
-    soul_auto_extract_enabled: bool = False
-    soul_auto_extract_channel_id: str | None = "1306464265703522325"
-    soul_auto_extract_namespace: str = "voxbot:soul:auto-test"
 
 
     model_config = pydantic_settings.SettingsConfigDict(

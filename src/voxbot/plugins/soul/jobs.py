@@ -34,6 +34,6 @@ async def soul_identity_check(
 
         _LOGGER.info("job_soul_identity_completed", action_count=len(r.output.actions) if r.output else 0)
 
-    except Exception as e:
-        _LOGGER.error("job_soul_identity_failed", exc=str(e))
+    except Exception as exc:
+        _LOGGER.error("job_soul_identity_failed", error=str(exc))
         raise

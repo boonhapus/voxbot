@@ -9,6 +9,8 @@ class RuntimeConfig(pydantic.BaseModel):
     directory: pathlib.Path = pathlib.Path.home() / ".voxbot"
     library_root: pathlib.Path = pathlib.Path(__file__).parent
 
+    _extra_paths: set[pathlib.Path] = set()
+
     @property
     def commands_sha(self) -> pathlib.Path:
         """
@@ -18,10 +20,21 @@ class RuntimeConfig(pydantic.BaseModel):
         """
         return self.directory / "commands.sha"
     
+    def extend(self, *parts: str) -> pathlib.Path:
+        """Get or create a subdirectory under the runtime directory."""
+        path = self.directory.joinpath(*parts)
+        self._extra_paths.add(path)
+        self.ensure_directories()
+        return path
+
     def ensure_directories(self) -> None:
         """Create all the necessary directories on disk."""
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self.commands_sha.touch(exist_ok=True)
+        for path in (self.directory, self.commands_sha, *self._extra_paths):
+            if path.suffixes:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch(exist_ok=True)
+            else:
+                path.mkdir(parents=True, exist_ok=True)
 
 
 runtime = RuntimeConfig()

@@ -1,39 +1,31 @@
+from typing import Annotated
+import dataclasses
+
 from pydantic_ai import Agent, ModelSettings, RunContext
 import discord
+import pydantic
 
 from voxbot.settings import settings
 
-from .identity import IdentityService
-from .memory import MEMORY_DIR, PEOPLE_FILE, MemoryService
-from .models import (
-    DiscordAction,
-    DiscordDeps,
-    DiscordResponse,
-    MemoryCategory,
-    ReactAction,
-    SilentAction,
-    TextAction,
-    ThreadAction,
-)
-from .prompts import build_persona_prompt
-
-__all__ = [
-    "DiscordAction",
-    "DiscordDeps",
-    "DiscordResponse",
-    "MEMORY_DIR",
-    "PEOPLE_FILE",
-    "MemoryCategory",
-    "ReactAction",
-    "SilentAction",
-    "TextAction",
-    "ThreadAction",
-    "soul_agent",
-]
+from .settings import soul_settings
+from .actions import BotAIActionT
+from .memory import Memories, MemoryCategory
+from . import utils
 
 
-memory_service = MemoryService()
-identity_service = IdentityService(settings.soul_home_guild_id)
+@dataclasses.dataclass
+class DiscordDeps:
+    """External data pushed into every agent call."""
+
+    bot: discord.Client
+    message: discord.Message | None = None
+
+
+class DiscordResponse(pydantic.BaseModel):
+    """The ai response object."""
+
+    actions: list[BotAIActionT] = pydantic.Field(default_factory=list)
+
 
 soul_agent = Agent(
     settings.txt_model,
@@ -43,28 +35,18 @@ soul_agent = Agent(
 )
 
 
-def _current_context(message: discord.Message | None) -> str:
-    if message is None:
-        return """
-- Mode: background identity check
-- No Discord message is being handled.
-""".strip()
-
-    return f"""
-- Author: {message.author.display_name} ({message.author.name}, id: {message.author.id})
-- Channel type: {message.channel.type}
-- Message id: {message.id}
-""".strip()
-
-
 @soul_agent.system_prompt
-def _persona(ctx: RunContext[DiscordDeps]) -> str:
-    message = ctx.deps.message
-    return build_persona_prompt(
-        current_context=_current_context(message),
-        identity_summary=identity_service.summary(ctx.deps.bot),
-        memory_summary=memory_service.summary(message),
+async def _persona(ctx: RunContext[DiscordDeps]) -> str:
+    """Inject the Voxbot personality and memory context into the agent prompt."""
+    prompt = utils.load_prompt(
+        "personality.mdc",
+        current_context="",
+        # current_context=utils.current_context(ctx.deps.message),
+        memory_summary="",
+        # memory_summary=await Memories.summary(ctx.deps.message),
     )
+
+    return prompt
 
 
 @soul_agent.tool
@@ -90,7 +72,11 @@ async def react_to_message(ctx: RunContext[DiscordDeps], emoji: str) -> str:
 
 
 @soul_agent.tool
-async def change_own_display_name(ctx: RunContext[DiscordDeps], display_name: str, reason: str | None = None) -> str:
+async def change_own_display_name(
+    ctx: RunContext[DiscordDeps],
+    display_name: str,
+    reason: str | None = None,
+) -> str:
     """
     Change Voxbot's display name in the configured home guild.
 
@@ -99,7 +85,23 @@ async def change_own_display_name(ctx: RunContext[DiscordDeps], display_name: st
     Names must be non-empty, 32 characters or fewer, and contain no control
     characters or newlines.
     """
-    return await identity_service.change_display_name(ctx.deps.bot, display_name, reason)
+    # DEV NOTE:
+    #   This is a code smell because we're relying on the fact that we
+    #   only have 1 guild in scope.
+    primary_guild = next(g for g in ctx.deps.bot.guilds if g.id == settings.debug_guild)
+
+    # Discord restricts User.nick names to 32 characters.
+    display_name = display_name[:32]
+
+    # Discord restricts AuditLogEntry.reason to 512 characters.
+    reason = "".join(["Voxbot self-renamed", ": " if reason is not None else ". ", reason or ""])[:512]
+
+    try:
+        await primary_guild.me.edit(nick=display_name, reason=reason)
+        return f"Changed Voxbot's home-guild display name to {display_name}."
+
+    except discord.HTTPException as exc:
+        return f"Name not changed: Discord rejected the nickname update ({exc})."
 
 
 @soul_agent.tool
@@ -107,20 +109,25 @@ async def remember_person_fact(
     ctx: RunContext[DiscordDeps],
     fact: str,
     category: MemoryCategory = "other",
-    person_id: str | None = None,
-    person_name: str | None = None,
+    person: str | int | None = None,
 ) -> str:
-    """
-    Remember an explicitly stated, stable fact about a person.
+    """Persist an explicitly stated, stable fact about a person to long-term storage.
 
     Use this for facts that will still matter later, such as birthdays, jobs,
     durable preferences, major life events, and holiday participation.
-    Do not store guesses, jokes, secrets, temporary moods, or sensitive facts
-    unless the user clearly asks Voxbot to remember them.
-
-    If person_id is omitted, the fact is stored for the current message author.
+    Do not store guesses, jokes, secrets, temporary moods.
     """
-    return await memory_service.remember(ctx.deps.message, fact, category, person_id, person_name)
+    cleaned_fact = " ".join(fact.strip().split())
+
+    if not cleaned_fact:
+        return "No memory stored because the fact was empty."
+    
+    if not ctx.deps.message:
+        return "No memory stored because we're missing the Discord message."
+
+    memory = await Memories.remember(message=ctx.deps.message, fact=cleaned_fact, category=category, person=person)
+
+    return f"Remembered for {memory['person']}: {memory['fact']}"
 
 
 @soul_agent.tool
@@ -128,14 +135,21 @@ async def forget_person_fact(
     ctx: RunContext[DiscordDeps],
     fact_fragment: str = "",
     category: MemoryCategory | None = None,
-    person_id: str | None = None,
-    person_name: str | None = None,
+    person: str | int | None = None,
 ) -> str:
-    """
-    Forget saved facts when a user asks Voxbot to forget something or corrects stale information.
+    """Remove saved facts when a user asks Voxbot to forget or correct stale information."""
+    cleaned_fact = " ".join(fact.strip().split())
 
-    Provide category when the user wants a class of facts forgotten, such as birthday or holiday.
-    Provide fact_fragment when removing one specific memory. If person_id is omitted, the current
-    message author is used.
-    """
-    return await memory_service.forget(ctx.deps.message, fact_fragment, category, person_id, person_name)
+    if not cleaned_fact and category is None:
+        return "No memory forgotten because neither a fact nor category was provided."
+    
+    if not ctx.deps.message:
+        return "No memory forgotten because we're missing the Discord message."
+
+    try:
+        memory = await Memories.forget(message=ctx.deps.message, fact=cleaned_fact, category=category, person=person)
+    except NoMemoryFound:
+        return "No matching memory found."
+    else:
+        return f"Forget about {memory['fact']} for {memory['person']}"
+

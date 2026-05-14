@@ -1,7 +1,7 @@
 from discord.ext import commands
 import structlog
 
-from . import cog, jobs
+from . import cog, jobs  # noqa: F401
 
 _LOGGER = structlog.get_logger(__name__)
 
