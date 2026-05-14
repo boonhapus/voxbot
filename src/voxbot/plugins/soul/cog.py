@@ -88,7 +88,10 @@ class SoulCog(commands.GroupCog, name="soul"):
 
         except Exception as exc:
             _LOGGER.error("chat_error", exc=type(exc), error=str(exc), user=message.author.id, channel=message.channel.id)
-            await message.reply(
-                f"My circuits are a bit fried right now. Try again?\n\n`{type(exc).__name__}: {exc}`",
-                mention_author=False,
-            )
+            await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
+
+            if owner := self.bot.get_user(settings.bot_owner_id):
+                await owner.send(
+                    f"🚨 **Soul chat error** — user {message.author.id} in {message.channel.id}\n"
+                    f"```\n{type(exc).__name__}: {exc}\n```"
+                )
