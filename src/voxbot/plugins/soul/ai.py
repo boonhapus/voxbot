@@ -1,5 +1,7 @@
 import dataclasses
 
+import structlog
+from jinja2 import TemplateNotFound
 from pydantic_ai import Agent, ModelSettings, RunContext
 import discord
 import pydantic
@@ -10,6 +12,8 @@ from .actions import BotAIActionT
 from .errors import NoMemoryFound
 from .memory import Memories, MemoryCategory
 from . import utils
+
+_LOGGER = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -37,13 +41,20 @@ soul_agent = Agent(
 @soul_agent.system_prompt
 async def _persona(ctx: RunContext[DiscordDeps]) -> str:
     """Inject the Voxbot personality and memory context into the agent prompt."""
-    prompt = utils.load_prompt(
-        "personality.mdc",
-        current_context="",
-        # current_context=utils.current_context(ctx.deps.message),
-        memory_summary="",
-        # memory_summary=await Memories.summary(ctx.deps.message),
-    )
+    try:
+        prompt = utils.load_prompt(
+            "personality.mdc",
+            current_context="",
+            # current_context=utils.current_context(ctx.deps.message),
+            memory_summary="",
+            # memory_summary=await Memories.summary(ctx.deps.message),
+        )
+    except (TemplateNotFound, ValueError) as exc:
+        _LOGGER.warning("personality_prompt_fallback", error=str(exc))
+        prompt = (
+            "You are Voxbot - or 'Vox' for short - a Discord-native participant with a dry, curious, "
+            "slightly mischievous personality. You are concise, socially aware, and comfortable staying quiet.\n"
+        )
 
     return prompt
 

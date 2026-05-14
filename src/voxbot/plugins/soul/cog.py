@@ -33,7 +33,15 @@ class SoulCog(commands.GroupCog, name="soul"):
         if not (owner := self.bot.get_user(settings.bot_owner_id)):
             return
 
-        message = await owner.send("Hey! I just came back online.")
+        sha = settings.voxbot_release_sha
+        github = "https://github.com/boonhapus/voxbot"
+        link = f"{github}/commit/{sha}" if sha else github
+
+        message = await owner.send(
+            f"Hey! I just came back online.\n"
+            f"Release: `{sha or 'unknown'}`\n"
+            f"{link}"
+        )
 
         try:
             await memory.Memories.remember(
