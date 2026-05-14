@@ -4,6 +4,7 @@ import discord
 
 from voxbot.store import runtime
 
+from .errors import NoMemoryFound
 from . import storage
 
 MemoryCategory = Literal[
@@ -40,7 +41,7 @@ class MemoryService:
             names = (candidate.name, candidate.global_name, candidate.display_name, candidate.id)
 
             if person_ident in map(str.casefold, map(str, names)):
-                return cast(discord.Member, message.author)
+                return cast(discord.Member, candidate)
 
         return cast(discord.Member, message.author)
 
@@ -77,6 +78,7 @@ class MemoryService:
             "unique_key": "fact",
             "data": {
                 "category": category,
+                "person": member.name,
                 "fact": fact,
                 "confidence": "explicit",
                 "source": "discord",
@@ -105,7 +107,10 @@ class MemoryService:
             },
         })
 
-        return await self.storage.delete(record)
+        try:
+            return await self.storage.delete(record)
+        except storage.NoEntryFound as exc:
+            raise NoMemoryFound() from exc
 
 
 Memories = MemoryService()

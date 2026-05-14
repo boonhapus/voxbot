@@ -136,8 +136,10 @@ async def remember_person_fact(
         return "No memory stored because we're missing the Discord message."
 
     memory = await Memories.remember(message=ctx.deps.message, fact=cleaned_fact, category=category, person=person)
+    person_name = memory.get("person") or str(person or ctx.deps.message.author.display_name)
+    remembered_fact = memory.get("fact", cleaned_fact)
 
-    return f"Remembered for {memory['person']}: {memory['fact']}"
+    return f"Remembered for {person_name}: {remembered_fact}"
 
 
 @soul_agent.tool
@@ -161,5 +163,7 @@ async def forget_person_fact(
     except NoMemoryFound:
         return "No matching memory found."
     else:
-        return f"Forget about {memory['fact']} for {memory['person']}"
+        person_name = memory.get("person") or str(person or ctx.deps.message.author.display_name)
+        forgotten_fact = memory.get("fact", cleaned_fact)
+        return f"Forget about {forgotten_fact} for {person_name}"
 
