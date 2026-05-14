@@ -45,6 +45,7 @@ fi
 
 OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
 ln -sfn "$REL" "$APP/current"
+echo "$SHA" > "$APP/release_sha"
 
 # Copy deploy scripts from the new release so Mac-side script fixes
 # (run-bot.sh, run-worker.sh) are picked up without manual re-bootstrap.
@@ -107,12 +108,11 @@ fi
 
 if [ -n "$RESTORE" ]; then
   ln -sfn "$RESTORE" "$APP/current"
-  OLD_SHA="$(git -C "$RESTORE" rev-parse HEAD 2>/dev/null || true)"
-  if [ -n "$OLD_SHA" ]; then
-    echo "$OLD_SHA" > "$APP/deployed_sha"
-  fi
+  OLD_SHA="$(basename "$RESTORE")"
+  echo "$OLD_SHA" > "$APP/release_sha"
+  echo "$OLD_SHA" > "$APP/deployed_sha"
 else
-  rm -f "$APP/current"
+  rm -f "$APP/current" "$APP/release_sha"
 fi
 
 kill_release_pidfile /Users/voxbot/run/voxbot-worker.pid
