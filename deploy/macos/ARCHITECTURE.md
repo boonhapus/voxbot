@@ -17,6 +17,17 @@ is set up correctly. Always use this form for any manual operation on the bot's
 working tree or venv — running as `boonhapus` directly will miss env vars and
 may create files owned by the wrong user.
 
+If you need to run multiple shell statements, pass the `bash -c` payload in
+single quotes:
+
+```sh
+sudo -u voxbot -i -- bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" PING'
+```
+
+Using double quotes around the `-c` payload can expand `$REDIS_*` in your
+current shell before `sudo` switches users, which is a common source of
+"works in one terminal, fails in another" behavior.
+
 ## High-level shape
 
 ```
@@ -184,7 +195,7 @@ sudo launchctl kickstart -k system/com.voxbot.bot
 | Bot in crash loop                        | New release builds but fails at runtime    | Auto-rollback after 60s; check logs |
 | Worker shows old SHA but bot is current  | Worker plist not kicked by deploy.sh       | `launchctl kickstart` it manually |
 | `colima status` says "not running"       | VM crashed or was stopped                  | `infra-up.sh` re-runs every 5min  |
-| Redis container restarting               | Likely `REDIS_PASSWORD` mismatch in env    | Recheck `voxbot.env`, re-up infra |
+| Redis container restarting               | Likely `REDIS_PASSWORD` mismatch, or port 6379 already bound (for example an SSH tunnel) | Recheck `voxbot.env`, stop the tunnel/process on 6379, re-up infra |
 
 ## Things deliberately not done
 

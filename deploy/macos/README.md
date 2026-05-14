@@ -285,10 +285,10 @@ sudo launchctl list | grep com.voxbot
 
 ```bash
 # Bot heartbeat appears in Redis:
-sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -u "$REDIS_URL" GET voxbot:health:ready'
+sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" GET voxbot:health:ready'
 # expected: "true"
 
-sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -u "$REDIS_URL" GET voxbot:health:release_sha'
+sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" GET voxbot:health:release_sha'
 # expected: a git SHA matching /Users/voxbot/apps/voxbot/deployed_sha
 ```
 
