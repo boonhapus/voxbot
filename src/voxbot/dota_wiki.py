@@ -69,14 +69,14 @@ def _fetch(session: niquests.Session, url: str, must_contain: str | None = None)
                 last_err = WikiError(f"expected marker missing: {must_contain}")
             else:
                 return text
-        except Exception as err:
-            last_err = err
+        except Exception as exc:
+            last_err = exc
         time.sleep(0.5 * (attempt + 1))
     raise WikiError(f"failed to fetch {url}: {last_err}")
 
 
 def list_heroes(session: niquests.Session) -> dict[str, str]:
-    """Return {lowercase_name: canonical_name} for every page in Category:Responses."""
+    """List all heroes found in the Category:Responses wiki page."""
     heroes: dict[str, str] = {}
     api_url = f"{WIKI_BASE}/api.php"
     params = {
@@ -97,8 +97,8 @@ def list_heroes(session: niquests.Session) -> dict[str, str]:
                 resp.raise_for_status()
                 try:
                     data = resp.json()
-                except ValueError as e:
-                    last_err = f"invalid JSON: {e}, preview: {resp.text[:500]}"
+                except ValueError as exc:
+                    last_err = f"invalid JSON: {exc}, preview: {resp.text[:500]}"
                     _LOGGER.warning("api_json_fail", hero="list_heroes", attempt=attempt, status=resp.status_code, preview=resp.text[:500])
                     time.sleep(1 * (attempt + 1))
                     continue
@@ -108,9 +108,9 @@ def list_heroes(session: niquests.Session) -> dict[str, str]:
                     time.sleep(1 * (attempt + 1))
                     continue
                 break
-            except Exception as e:
-                last_err = str(e)
-                _LOGGER.warning("api_request_fail", attempt=attempt, error=str(e))
+            except Exception as exc:
+                last_err = str(exc)
+                _LOGGER.warning("api_request_fail", attempt=attempt, error=str(exc))
                 time.sleep(1 * (attempt + 1))
         if data is None:
             raise WikiError(f"failed to list heroes: {last_err}")
@@ -131,7 +131,7 @@ def find_hero(session: niquests.Session, query: str) -> str | None:
 
 
 def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
-    """Return audio URLs for a hero, taking only the first <source> per <li>.
+    """Collect original recording audio URLs for a hero's response lines.
 
     The Dota wiki lays out variant voice lines in side-by-side columns within a
     single list item: the first column is the original recording, subsequent
@@ -156,8 +156,8 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
             resp.raise_for_status()
             try:
                 data = resp.json()
-            except ValueError as e:
-                last_err = f"invalid JSON: {e}, preview: {resp.text[:500]}"
+            except ValueError as exc:
+                last_err = f"invalid JSON: {exc}, preview: {resp.text[:500]}"
                 _LOGGER.warning("api_json_fail", hero=hero, attempt=attempt, status=resp.status_code, preview=resp.text[:500])
                 time.sleep(1 * (attempt + 1))
                 continue
@@ -167,9 +167,9 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
                 time.sleep(1 * (attempt + 1))
                 continue
             break
-        except Exception as e:
-            last_err = str(e)
-            _LOGGER.warning("api_request_fail", hero=hero, attempt=attempt, error=str(e))
+        except Exception as exc:
+            last_err = str(exc)
+            _LOGGER.warning("api_request_fail", hero=hero, attempt=attempt, error=str(exc))
             time.sleep(1 * (attempt + 1))
     if data is None:
         raise WikiError(f"failed to get audio urls for {hero}: {last_err}")
@@ -249,8 +249,8 @@ def _sample(hero_query: str) -> tuple[str, bytes, str]:
                 resp.raise_for_status()
                 local.write_bytes(resp.content)
                 dur = _ffprobe_duration(local)
-            except Exception as err:
-                _LOGGER.warning("wiki_clip_skipped", url=url, error=str(err))
+            except Exception as exc:
+                _LOGGER.warning("wiki_clip_skipped", url=url, error=str(exc))
                 continue
             if dur > max_s:
                 continue
@@ -285,5 +285,5 @@ def _sample(hero_query: str) -> tuple[str, bytes, str]:
 
 
 async def sample_voice_lines(hero_query: str) -> tuple[str, bytes, str]:
-    """Async wrapper: returns (canonical_hero_name, audio_bytes, filename)."""
+    """Async wrapper around the blocking sample function."""
     return await asyncio.to_thread(_sample, hero_query)

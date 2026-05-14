@@ -13,19 +13,14 @@ class VoiceState:
     def resolve_voice(
         voice_name: str | None, custom_voices: dict[str, str]
     ) -> str | None:
-        """
-        Resolve a voice name to a voice ID.
-        If voice_name is "Paul" or None, pick a random default voice.
-        Otherwise look it up in custom_voices.
-        Returns None if voice not found.
-        """
+        """Resolve a voice name to a voice ID, defaulting to a random Paul variant when appropriate."""
         if voice_name is None or voice_name == "Paul":
             return f"{VOICE_PREFIX}{random.choice(DEFAULT_VOICES)}"
         return custom_voices.get(voice_name)
 
     @staticmethod
     def get_voice_list(custom_voices: dict[str, str]) -> list[str]:
-        """Return list of available voices: 'Paul' + custom voices."""
+        """List all available voices for autocomplete display."""
         custom = [v for v in custom_voices.keys() if not v.startswith(VOICE_PREFIX)]
         return ["Paul", *custom]
 

@@ -45,8 +45,8 @@ class RedisHealthRuntime:
         """MultipleSet, but safely warn when it goes wrong."""
         try:
             await utils.RedisClient.mset(values)
-        except redis.exceptions.RedisError as e:
-            _LOGGER.warning("health_write_failed", dev_msg=str(e))
+        except redis.exceptions.RedisError as exc:
+            _LOGGER.warning("health_write_failed", dev_msg=str(exc))
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
 
@@ -74,11 +74,7 @@ class RedisHealthRuntime:
     
     async def close(self) -> None:
         """Close the health runtime."""
-        if self._redis is None:
-            return
-        
         await utils.RedisClient.close()
-        self._redis = None
 
     # ── REDIS INFORMERS ───────────────────────────────────────────────────────────────
 
@@ -106,8 +102,8 @@ class RedisHealthRuntime:
             await utils.RedisClient.set(self.key("restart_requested"), value=reason)
             await utils.RedisClient.incr(self.key("restart_count"))
 
-        except Exception as err:
-            _LOGGER.warning("health_restart_record_failed", dev_msg=str(err))
+        except Exception as exc:
+            _LOGGER.warning("health_restart_record_failed", dev_msg=str(exc))
 
     async def record_error(self, exc: BaseException) -> None:
         """Inform the runtime that an error was encountered."""
@@ -122,5 +118,5 @@ class RedisHealthRuntime:
         try:
             await utils.RedisClient.hset(self.key("last_error"), mapping=error_data)  # type: ignore
 
-        except Exception as e:
-            _LOGGER.error("critical_failure_recording_error", dev_msg=str(e))
+        except Exception as exc:
+            _LOGGER.error("critical_failure_recording_error", dev_msg=str(exc))

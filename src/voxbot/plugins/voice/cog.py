@@ -98,11 +98,11 @@ class VoiceCog(commands.GroupCog, name="voice"):
                 canonical, audio_bytes, sample_filename = (
                     await dota_wiki.sample_voice_lines(hero)
                 )
-            except dota_wiki.WikiError as err:
-                await interaction.edit_original_response(content=f"❌ {err}")
+            except dota_wiki.WikiError as exc:
+                await interaction.edit_original_response(content=f"❌ {exc}")
                 return
-            except Exception as err:
-                _LOGGER.error("wiki_scrape_failed", error=str(err), hero=hero)
+            except Exception as exc:
+                _LOGGER.error("wiki_scrape_failed", error=str(exc), hero=hero)
                 await interaction.edit_original_response(
                     content="⚠️ Failed to scrape Dota wiki. Check logs."
                 )
@@ -126,8 +126,8 @@ class VoiceCog(commands.GroupCog, name="voice"):
 
             try:
                 audio_bytes = await audio.read()
-            except Exception as err:
-                _LOGGER.error("voice_download_failed", error=str(err))
+            except Exception as exc:
+                _LOGGER.error("voice_download_failed", error=str(exc))
                 await interaction.edit_original_response(
                     content="⚠️ Failed to download audio file."
                 )
@@ -209,8 +209,8 @@ class VoiceCog(commands.GroupCog, name="voice"):
             hero_context = self.vox_model.hero_origins.get(voice or "")
             try:
                 text = await ai.generate_line(prompt, hero_context)
-            except Exception as err:
-                _LOGGER.error("ai_generate_failed", error=str(err))
+            except Exception as exc:
+                _LOGGER.error("ai_generate_failed", error=str(exc))
                 await interaction.edit_original_response(
                     content="⚠️ Failed to generate line. Check logs."
                 )
@@ -266,8 +266,8 @@ class VoiceCog(commands.GroupCog, name="voice"):
 
             vc.play(source, after=_after_play)
 
-        except Exception as err:
-            _LOGGER.error("voice_connect_failed", error=str(err))
+        except Exception as exc:
+            _LOGGER.error("voice_connect_failed", error=str(exc))
             TTSProcessor.cleanup_temp_file(tmp_path)
             await interaction.edit_original_response(
                 content="⚠️ Failed to connect or play audio."
@@ -332,8 +332,8 @@ class VoiceCog(commands.GroupCog, name="voice"):
                     vc = await voice_state.channel.connect(cls=songbird.SongbirdClient, config=config)
             else:
                 vc = await voice_state.channel.connect(cls=songbird.SongbirdClient, config=config)
-        except Exception as err:
-            _LOGGER.error("voice_connect_failed", error=str(err))
+        except Exception as exc:
+            _LOGGER.error("voice_connect_failed", error=str(exc))
             await interaction.edit_original_response(content="⚠️ Failed to connect.")
             return
 

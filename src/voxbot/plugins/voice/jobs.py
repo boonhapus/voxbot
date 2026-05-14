@@ -25,8 +25,8 @@ async def sync_voices(perpetual: Perpetual = Perpetual(every=dt.timedelta(second
         else:
             _LOGGER.info("job_sync_voices_no_new_voices")
 
-    except Exception as err:
-        _LOGGER.error("job_sync_voices_failed", error=str(err))
+    except Exception as exc:
+        _LOGGER.error("job_sync_voices_failed", error=str(exc))
         raise
 
 
@@ -59,7 +59,7 @@ async def auto_leave_voice_clients(
                     break
             vox_model.last_active.pop(guild_id, None)
 
-    except Exception as err:
-        _LOGGER.error("job_auto_leave_failed", error=str(err))
+    except Exception as exc:
+        _LOGGER.error("job_auto_leave_failed", error=str(exc))
         raise
 

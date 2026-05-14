@@ -40,8 +40,8 @@ class HealthReport(pydantic.BaseModel):
             v = await utils.RedisClient.mget(*k)
             return cls.model_validate(dict(zip(mapping.keys(), v)))
 
-        except Exception as e:
-            _LOGGER.error("redis_health_read_failed", error=str(e))
+        except Exception as exc:
+            _LOGGER.error("redis_health_read_failed", error=str(exc))
             raise errors.RedisError("Redis health read failed") from e
 
     @property

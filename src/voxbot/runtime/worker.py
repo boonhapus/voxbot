@@ -60,8 +60,8 @@ async def run_worker() -> int:
         _LOGGER.info("docket_worker_interrupted")
         return 0
 
-    except Exception as e:
-        await health.record_error(exc=e)
+    except Exception as exc:
+        await health.record_error(exc=exc)
         _LOGGER.exception("docket_worker_failed")
         return 1
 

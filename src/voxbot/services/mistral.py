@@ -66,8 +66,8 @@ class MistralService:
                 count=len(self.voices.custom_voices),
                 deleted=len(self.voices.deleted_voices),
             )
-        except Exception as err:
-            _LOGGER.error("voices_load_failed", error=str(err))
+        except Exception as exc:
+            _LOGGER.error("voices_load_failed", error=str(exc))
 
     def save_voices(self) -> None:
         self.voices_file.parent.mkdir(parents=True, exist_ok=True)
@@ -79,16 +79,16 @@ class MistralService:
                 count=len(self.voices.custom_voices),
                 deleted=len(self.voices.deleted_voices),
             )
-        except Exception as err:
-            _LOGGER.error("voices_save_failed", error=str(err))
+        except Exception as exc:
+            _LOGGER.error("voices_save_failed", error=str(exc))
 
     async def sync_voices(self) -> dict[str, str]:
-        """Sync available voices from Mistral, return newly added voices."""
+        """Fetch available voices from the Mistral API and persist any new ones."""
         try:
             response = await self.client.audio.voices.list_async()
-        except Exception as err:
-            _LOGGER.error("voices_sync_failed", error=str(err))
-            raise MistralError(f"failed to sync voices: {err}") from err
+        except Exception as exc:
+            _LOGGER.error("voices_sync_failed", error=str(exc))
+            raise MistralError(f"failed to sync voices: {exc}") from exc
 
         added = {}
         for voice in response.items:
@@ -106,16 +106,16 @@ class MistralService:
     async def train_voice(
         self, name: str, audio_b64: str, sample_filename: str
     ) -> VoiceID:
-        """Train a custom voice. Returns the voice ID."""
+        """Train a new custom voice on the Mistral API and persist it locally."""
         try:
             voice = await self.client.audio.voices.create_async(
                 name=name,
                 sample_audio=audio_b64,
                 sample_filename=sample_filename,
             )
-        except Exception as err:
-            _LOGGER.error("voice_train_failed", error=str(err), name=name)
-            raise MistralError(f"voice training failed: {err}") from err
+        except Exception as exc:
+            _LOGGER.error("voice_train_failed", error=str(exc), name=name)
+            raise MistralError(f"voice training failed: {exc}") from exc
 
         self.voices.custom_voices[name] = voice.id
         self.save_voices()
@@ -125,12 +125,12 @@ class MistralService:
         """Delete a voice from Mistral."""
         try:
             await self.client.audio.voices.delete_async(voice_id=voice_id)
-        except Exception as err:
-            _LOGGER.error("voice_delete_failed", error=str(err), voice_id=voice_id)
-            raise MistralError(f"voice deletion failed: {err}") from err
+        except Exception as exc:
+            _LOGGER.error("voice_delete_failed", error=str(exc), voice_id=voice_id)
+            raise MistralError(f"voice deletion failed: {exc}") from exc
 
     async def text_to_speech(self, text: str, voice_id: VoiceID) -> str:
-        """Generate TTS. Returns base64-encoded audio."""
+        """Generate TTS audio from text using the Mistral API."""
         try:
             response = await self.client.audio.speech.complete_async(
                 model=settings.voc_model,
@@ -138,8 +138,8 @@ class MistralService:
                 voice_id=voice_id,
                 response_format="mp3",
             )
-        except Exception as err:
-            _LOGGER.error("tts_failed", error=str(err))
-            raise MistralError(f"TTS generation failed: {err}") from err
+        except Exception as exc:
+            _LOGGER.error("tts_failed", error=str(exc))
+            raise MistralError(f"TTS generation failed: {exc}") from exc
 
         return response.audio_data
