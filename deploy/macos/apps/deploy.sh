@@ -74,8 +74,8 @@ kill_release_pidfile /Users/voxbot/run/voxbot.pid
 sleep 5
 
 for i in {1..30}; do
-  HEALTH_SHA="$(redis-cli -u "$REDIS_URL" GET voxbot:health:release_sha 2>/dev/null || true)"
-  READY="$(redis-cli -u "$REDIS_URL" GET voxbot:health:ready 2>/dev/null || true)"
+  HEALTH_SHA="$(docker exec infra-redis-1 redis-cli -a "$REDIS_PASSWORD" GET voxbot:health:release_sha 2>/dev/null || true)"
+  READY="$(docker exec infra-redis-1 redis-cli -a "$REDIS_PASSWORD" GET voxbot:health:ready 2>/dev/null || true)"
 
   if [ "$HEALTH_SHA" = "$SHA" ] && [ "$READY" = "true" ]; then
     echo "$SHA" > "$APP/deployed_sha"
