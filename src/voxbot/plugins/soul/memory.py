@@ -31,9 +31,18 @@ class MemoryService:
         self.storage = storage.FileStorage(path=runtime.extend("soul/people.json"))
 
     @staticmethod
-    def _resolve_member(message: discord.Message, *, person_ident: str | int | None = None) -> discord.Member:
+    def _partition_key(person: discord.Member | discord.User) -> str:
+        # Prefer stable IDs so memories remain attached across username changes.
+        return str(person.id)
+
+    @staticmethod
+    def _resolve_member(
+        message: discord.Message,
+        *,
+        person_ident: str | int | None = None,
+    ) -> discord.Member | discord.User:
         if person_ident is None:
-            return cast(discord.Member, message.author)
+            return cast(discord.Member | discord.User, message.author)
 
         person_ident = str(person_ident).casefold()
 
@@ -41,9 +50,9 @@ class MemoryService:
             names = (candidate.name, candidate.global_name, candidate.display_name, candidate.id)
 
             if person_ident in map(str.casefold, map(str, names)):
-                return cast(discord.Member, candidate)
+                return cast(discord.Member | discord.User, candidate)
 
-        return cast(discord.Member, message.author)
+        return cast(discord.Member | discord.User, message.author)
 
     # ── PUBLIC INTERFACE ──────────────────────────────────────────────────────
 
@@ -53,13 +62,16 @@ class MemoryService:
 
         member = self._resolve_member(message, person_ident=message.author.id)
         buffer = await self.storage.read()
+        primary_partition = self._partition_key(member)
+        legacy_partition = member.name
+        memories = buffer.get(primary_partition) or buffer.get(legacy_partition)
 
-        if not buffer or not buffer.get(member.name):
+        if not memories:
             return "- No memories for this user."
 
         lines: list[str] = []
 
-        for record in buffer[member.name][-20:]:
+        for record in memories[-20:]:
             lines.append(f"- {record.data['category']}: {record.data['fact']}")
 
         return "\n".join(lines)
@@ -74,11 +86,12 @@ class MemoryService:
         member = self._resolve_member(message, person_ident=person)
 
         record = storage.Record.model_validate({
-            "partition_key": member.name,
+            "partition_key": self._partition_key(member),
             "unique_key": "fact",
             "data": {
                 "category": category,
                 "person": member.name,
+                "person_id": member.id,
                 "fact": fact,
                 "confidence": "explicit",
                 "source": "discord",
@@ -98,19 +111,24 @@ class MemoryService:
     ) -> dict[str, Any]:
         member = self._resolve_member(message, person_ident=person)
 
-        record = storage.Record.model_validate({
-            "partition_key": member.name,
+        record_data = {
             "unique_key": "fact",
             "data": {
                 "category": category,
                 "fact": fact,
             },
-        })
+        }
 
+        record = storage.Record.model_validate({"partition_key": self._partition_key(member), **record_data})
         try:
             return await self.storage.delete(record)
         except storage.NoEntryFound as exc:
-            raise NoMemoryFound() from exc
+            # Backward-compat: existing memories may still be keyed by username.
+            legacy = storage.Record.model_validate({"partition_key": member.name, **record_data})
+            try:
+                return await self.storage.delete(legacy)
+            except storage.NoEntryFound:
+                raise NoMemoryFound() from exc
 
 
 Memories = MemoryService()

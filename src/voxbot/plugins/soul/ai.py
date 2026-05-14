@@ -41,13 +41,19 @@ soul_agent = Agent(
 @soul_agent.system_prompt
 async def _persona(ctx: RunContext[DiscordDeps]) -> str:
     """Inject the Voxbot personality and memory context into the agent prompt."""
+    current_context = utils.current_context(ctx.deps.message)
+
+    try:
+        memory_summary = await Memories.summary(ctx.deps.message)
+    except Exception as exc:
+        _LOGGER.warning("memory_summary_unavailable", error=str(exc))
+        memory_summary = "- Memories unavailable right now."
+
     try:
         prompt = utils.load_prompt(
             "personality.mdc",
-            current_context="",
-            # current_context=utils.current_context(ctx.deps.message),
-            memory_summary="",
-            # memory_summary=await Memories.summary(ctx.deps.message),
+            current_context=current_context,
+            memory_summary=memory_summary,
         )
     except (TemplateNotFound, ValueError) as exc:
         _LOGGER.warning("personality_prompt_fallback", error=str(exc))
