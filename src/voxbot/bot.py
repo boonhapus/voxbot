@@ -1,9 +1,6 @@
 import asyncio
-import io
 import signal
 import sys
-import textwrap
-import traceback
 
 from discord.ext import commands
 import discord
@@ -13,7 +10,7 @@ from voxbot.runtime.docket import BotDocketRuntime
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
 from voxbot.store import runtime
-from voxbot import __project__, errors, utils
+from voxbot import __project__, error_reports, errors, utils
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -142,23 +139,20 @@ class VoxBot(commands.Bot):
         # Record to health runtime
         await self.health_runtime.record_error(exc=error_detail)
 
-        # Format the traceback
-        # We use 'jump_url' style or code blocks for the traceback
-        trace_str = "".join(traceback.format_exception(exc_type, exc, tb))
-        
-        full_output = (
-            f"🚨 **Bot Error in `{event_method}`**\n"
-            f"**Details:** `{type(error_detail).__name__}: {error_detail}`\n"
-            f"**args:** `{args}`\n"
-            f"**kwargs:** `{kwargs}`\n\n"
-            f"**Traceback:**\n```py\n{trace_str}\n```"
+        # DM owner with a full traceback attachment.
+        await error_reports.dm_owner_error_report(
+            self,
+            subject=f"Error occurred in {event_method}",
+            title=f"Bot error in `{event_method}`",
+            details={
+                "Details": f"{type(error_detail).__name__}: {error_detail}",
+                "Args": repr(args),
+                "Kwargs": repr(kwargs),
+            },
+            filename="error_log.txt",
+            error=error_detail,
+            exc_info=(exc_type, exc, tb),
         )
-
-        if owner := self.get_user(settings.bot_owner_id):
-            await owner.send(
-                f"Error occurred in {event_method}",
-                file=discord.File(io.BytesIO(full_output.encode('utf-8')), filename="error_log.txt")
-            )
 
         await super().on_error(event_method, *args, **kwargs)
 
@@ -176,17 +170,19 @@ class VoxBot(commands.Bot):
         if isinstance(error, errors.VoxCheckFailure):
             await ctx.send(str(error), ephemeral=True)
 
-        if owner := self.get_user(settings.bot_owner_id):
-            await owner.send(
-                textwrap.dedent(
-                    f"""
-                    🚨 Command `{ctx.command}` failed!
-                    ```
-                    {type(error).__name__}: {error}
-                    ```
-                    """
-                )
-            )
+        source_error = getattr(error, "original", error)
+        await error_reports.dm_owner_error_report(
+            self,
+            subject=f"Command error in {ctx.command}",
+            title=f"Command `{ctx.command}` failed",
+            details={
+                "Channel": str(ctx.channel),
+                "User": f"{ctx.author} ({ctx.author.id})",
+                "Details": f"{type(source_error).__name__}: {source_error}",
+            },
+            filename="command_error_log.txt",
+            error=source_error,
+        )
 
         await super().on_command_error(ctx, error)
 

@@ -5,6 +5,7 @@ import discord
 import structlog
 
 from voxbot.settings import settings
+from voxbot import error_reports
 
 from .settings import soul_settings
 from . import ai, memory, utils
@@ -89,8 +90,16 @@ class SoulCog(commands.GroupCog, name="soul"):
             _LOGGER.error("chat_error", exc=type(exc), error=str(exc), user=message.author.id, channel=message.channel.id)
             await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
 
-            if owner := self.bot.get_user(settings.bot_owner_id):
-                await owner.send(
-                    f"🚨 **Soul chat error** — {message.author.mention} in {getattr(message.channel, 'mention', str(message.channel.id))}\n"
-                    f"```\n{type(exc).__name__}: {exc}\n```"
-                )
+            await error_reports.dm_owner_error_report(
+                self.bot,
+                subject="Soul chat error",
+                title="Soul chat error",
+                details={
+                    "User": f"{message.author} ({message.author.id})",
+                    "Channel": getattr(message.channel, "mention", str(message.channel.id)),
+                    "Message": repr(message.content),
+                    "Details": f"{type(exc).__name__}: {exc}",
+                },
+                filename="soul_error_log.txt",
+                error=exc,
+            )
