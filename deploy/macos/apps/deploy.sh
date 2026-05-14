@@ -80,9 +80,10 @@ for i in {1..30}; do
   if [ "$HEALTH_SHA" = "$SHA" ] && [ "$READY" = "true" ]; then
     echo "$SHA" > "$APP/deployed_sha"
     echo "$LOG_PREFIX deployed $SHA"
-    # Prune old releases, keeping the 5 most recent plus current+previous.
+    # Prune old releases (keep 5 newest), but never delete the current symlink target.
+    CURRENT_TARGET="$(readlink "$APP/current" 2>/dev/null || true)"
     ls -1t "$APP/releases" 2>/dev/null | tail -n +6 | while read -r old; do
-      [ -n "$old" ] && rm -rf "$APP/releases/$old"
+      [ -n "$old" ] && [ "$APP/releases/$old" != "$CURRENT_TARGET" ] && rm -rf "$APP/releases/$old"
     done
     exit 0
   fi
