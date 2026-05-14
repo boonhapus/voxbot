@@ -57,9 +57,10 @@ class Settings(pydantic_settings.BaseSettings):
     def export_to_environ(self) -> Self:
         """Sync loaded settings to os.environ for downstream libraries."""
         for name, field in Settings.model_fields.items():
-            schema_is_empty = field.json_schema_extra is None
-            schema_is_typed = isinstance(field.json_schema_extra, dict)
-            schema_mirrored = (field.json_schema_extra or {}).get("mirror_to_os.environ", False)
+            json_schema_extra = getattr(field, "json_schema_extra", None)
+            schema_is_empty = json_schema_extra is None
+            schema_is_typed = isinstance(json_schema_extra, dict)
+            schema_mirrored = (json_schema_extra or {}).get("mirror_to_os.environ", False)
 
             if schema_is_empty or not schema_is_typed or not schema_mirrored:
                 continue

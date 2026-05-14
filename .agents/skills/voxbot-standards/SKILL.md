@@ -44,6 +44,41 @@ _LOGGER = structlog.get_logger(__name__)
 
 Every function/method has type annotations. Use `| None` (Python 3.14 pipe), not `Optional[]`.
 
+## Type checking (pyrefly)
+
+Type checking is enforced in CI via `uv run pyrefly check`. The config lives in `[tool.pyrefly]` in `pyproject.toml`.
+
+### Running locally
+
+```bash
+uv run pyrefly check                  # full check
+uv run pyrefly check --summarize-errors  # with error summary
+```
+
+### Suppressing errors
+
+Use specific `# pyrefly: ignore[error-kind]` — never bare `# type: ignore`. The error kind is part of the diagnostic (e.g. `missing-attribute`, `bad-return`).
+
+Common suppressions in this codebase (stub gaps in discord.py / songbird):
+
+```python
+# pyrefly: ignore[missing-attribute]    # dynamic discord.py attrs
+# pyrefly: ignore[bad-specialization]    # MRO / TypeVar issues with songbird
+# pyrefly: ignore[unexpected-keyword]    # extra kwargs added by songbird
+```
+
+Multiple kinds per line:
+
+```python
+# pyrefly: ignore[bad-specialization, unexpected-keyword]
+```
+
+### Maintaining on new code
+
+- Run `uv run pyrefly check` before committing
+- Prefer real fixes (guards, casts, asserts) over ignores — only suppress when upstream stubs are the limiting factor
+- When upgrading pyrefly or dependencies, run `pyrefly suppress` to silence newly revealed errors, then fix them incrementally
+
 ## Error hierarchy
 
 Global exceptions in `src/voxbot/errors.py` (base `VoxBotError`, check failures off `commands.CheckFailure`).
@@ -154,5 +189,5 @@ For global bot config, use `voxbot.settings.settings` (imported as `from voxbot.
 - Guard clauses / early return — no deep nesting
 - `type` keyword for type aliases (Python 3.14+): `type _MyType = ...`
 - Module-level singletons (no getter functions)
-- `# type: ignore` only when unavoidable, bare form
+- `# pyrefly: ignore[error-kind]` only when unavoidable, always specify the error kind
 - No comments in implementation code — docstrings and section headers only

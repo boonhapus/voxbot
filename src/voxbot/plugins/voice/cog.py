@@ -5,6 +5,7 @@ import base64
 import pathlib
 import re
 import time
+from typing import cast
 
 from discord import app_commands
 from discord.ext import commands, songbird
@@ -43,7 +44,7 @@ class SpikeReceiver:
             self.active_ssrcs.discard(ssrc)
 
     def voice_tick(self, tick: object) -> None:
-        for ssrc, voice_data in tick.speaking.items():
+        for ssrc, voice_data in tick.speaking.items():  # pyrefly: ignore[missing-attribute]
             if not voice_data.decoded_voice:
                 continue
 
@@ -133,10 +134,10 @@ async def _play_in_voice(
 
         if vc is None:
             vc = await channel.connect()
-        elif vc.channel.id != channel.id:
-            await vc.move_to(channel)
+        elif vc.channel.id != channel.id:  # pyrefly: ignore[missing-attribute]
+            await vc.move_to(channel)  # pyrefly: ignore[missing-attribute]
 
-        vc.play(discord.FFmpegPCMAudio(tmp_path), after=_after_play)
+        vc.play(discord.FFmpegPCMAudio(tmp_path), after=_after_play)  # pyrefly: ignore[missing-attribute]
     except (discord.DiscordException, asyncio.TimeoutError, OSError) as exc:
         raise VoiceCommandError(
             "⚠️ Failed to connect or play audio.",
@@ -151,17 +152,17 @@ async def _connect_songbird(
     bot: commands.Bot, channel: discord.VoiceChannel,
 ) -> songbird.SongbirdClient:
     """Connect or upgrade the voice client to a SongbirdClient with decoding enabled."""
-    config = songbird.ConfigBuilder().decode_mode(songbird.PyDecodeMode.Decode).build()
+    config = songbird.ConfigBuilder().decode_mode(songbird.PyDecodeMode.Decode).build()  # pyrefly: ignore[missing-attribute]
 
     try:
         vc = discord.utils.get(bot.voice_clients, guild=channel.guild)
 
         if vc is None:
-            return await channel.connect(cls=songbird.SongbirdClient, config=config)
+            return cast(songbird.SongbirdClient, await channel.connect(cls=songbird.SongbirdClient, config=config))  # pyrefly: ignore[bad-specialization, unexpected-keyword]
 
         if not isinstance(vc, songbird.SongbirdClient):
-            await vc.disconnect()
-            return await channel.connect(cls=songbird.SongbirdClient, config=config)
+            await vc.disconnect(force=True)
+            return cast(songbird.SongbirdClient, await channel.connect(cls=songbird.SongbirdClient, config=config))  # pyrefly: ignore[bad-specialization, unexpected-keyword]
 
         if vc.channel.id != channel.id:
             await vc.move_to(channel)
@@ -250,6 +251,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
                 )
                 voice_name, audio_bytes, sample_filename, canonical = await _audio_from_hero(hero)
             else:
+                assert audio is not None
                 voice_name, audio_bytes, sample_filename = await _audio_from_attachment(audio)
 
             await interaction.edit_original_response(
@@ -304,7 +306,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
             await interaction.edit_original_response(content="❌ Must be used in a server.")
             return
 
-        user_voice = interaction.user.voice
+        user_voice = interaction.user.voice  # pyrefly: ignore[missing-attribute]
         if user_voice is None or user_voice.channel is None:
             await interaction.edit_original_response(content="❌ You must be in a voice channel.")
             return
@@ -393,7 +395,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
         """Run a 10-second receiver spike, reporting decoded audio bytes per speaker."""
         await interaction.response.defer(thinking=True)
 
-        user_voice = interaction.user.voice
+        user_voice = interaction.user.voice  # pyrefly: ignore[missing-attribute]
         if user_voice is None or user_voice.channel is None:
             await interaction.edit_original_response(content="❌ You must be in a voice channel.")
             return
@@ -406,7 +408,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
             return
 
         receiver = SpikeReceiver()
-        await vc.register_receiver(receiver)
+        await vc.register_receiver(receiver)  # pyrefly: ignore[missing-attribute]
 
         await interaction.edit_original_response(
             content="👂 Listening... (Initializing Rust/Songbird)",
@@ -417,7 +419,7 @@ class VoiceCog(commands.GroupCog, name="voice"):
                 await asyncio.sleep(1)
                 await interaction.edit_original_response(content=_render_listen(elapsed, receiver))
         finally:
-            await vc.unregister_receiver(receiver)
+            await vc.unregister_receiver(receiver)  # pyrefly: ignore[missing-attribute]
 
         await interaction.edit_original_response(
             content=f"✅ Finished listening spike. Data received for {len(receiver.bytes_per_user)} users.",

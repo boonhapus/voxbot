@@ -12,7 +12,7 @@ from voxbot.settings import settings
 
 _LOGGER = structlog.get_logger(__name__)
 
-VoiceID: type[str] = Annotated[str, "Mistral voice ID"]
+type VoiceID = Annotated[str, "Mistral voice ID"]
 DEFAULT_VOICES_FILE = pathlib.Path.home() / ".voxbot" / "voices.json"
 
 

@@ -34,6 +34,7 @@ def load_prompt(template_path: str, **variables: Any) -> str:
     path = pathlib.Path(template_path)
     env = _env_for(_PROMPT_DIR)
 
+    assert env.loader is not None
     source, _, _ = env.loader.get_source(env, path.name)
 
     if source.count("---\n") < 2:

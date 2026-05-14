@@ -38,11 +38,14 @@ voxbot = "voxbot.__main__:cli"
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.15.11",
+    "pyrefly>=0.65.0",
 ]
 
 [tool.ruff]
 target-version = "py314"
 line-length = 120
+
+[tool.pyrefly]
 
 [tool.ruff.format]
 docstring-code-format = true

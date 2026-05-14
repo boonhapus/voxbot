@@ -63,6 +63,8 @@ def _fetch(session: niquests.Session, url: str, must_contain: str | None = None)
             resp = session.get(url, timeout=20)
             resp.raise_for_status()
             text = resp.text
+            if text is None:
+                raise WikiError("empty response body")
             if _CF_CHALLENGE_MARKER in text[:2000]:
                 last_err = WikiError("cloudflare challenge")
             elif must_contain is not None and must_contain not in text:
@@ -83,7 +85,7 @@ def list_heroes(session: niquests.Session) -> dict[str, str]:
         "action": "query",
         "list": "categorymembers",
         "cmtitle": "Category:Responses",
-        "cmlimit": 500,
+        "cmlimit": "500",
         "format": "json",
         "formatversion": "2",
     }
@@ -93,13 +95,13 @@ def list_heroes(session: niquests.Session) -> dict[str, str]:
         for attempt in range(_FETCH_RETRIES):
             try:
                 resp = session.get(api_url, params=params, timeout=20)
-                _LOGGER.info("api_response", url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=resp.text[:500])
+                _LOGGER.info("api_response", url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=(resp.text or "")[:500])
                 resp.raise_for_status()
                 try:
                     data = resp.json()
                 except ValueError as exc:
-                    last_err = f"invalid JSON: {exc}, preview: {resp.text[:500]}"
-                    _LOGGER.warning("api_json_fail", hero="list_heroes", attempt=attempt, status=resp.status_code, preview=resp.text[:500])
+                    last_err = f"invalid JSON: {exc}, preview: {(resp.text or "")[:500]}"
+                    _LOGGER.warning("api_json_fail", hero="list_heroes", attempt=attempt, status=resp.status_code, preview=(resp.text or "")[:500])
                     time.sleep(1 * (attempt + 1))
                     continue
                 if isinstance(data, dict) and "error" in data:
@@ -152,13 +154,13 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
     for attempt in range(_FETCH_RETRIES):
         try:
             resp = session.get(api_url, params=params, timeout=20)
-            _LOGGER.info("api_response", hero=hero, url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=resp.text[:500])
+            _LOGGER.info("api_response", hero=hero, url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=(resp.text or "")[:500])
             resp.raise_for_status()
             try:
                 data = resp.json()
             except ValueError as exc:
-                last_err = f"invalid JSON: {exc}, preview: {resp.text[:500]}"
-                _LOGGER.warning("api_json_fail", hero=hero, attempt=attempt, status=resp.status_code, preview=resp.text[:500])
+                last_err = f"invalid JSON: {exc}, preview: {(resp.text or "")[:500]}"
+                _LOGGER.warning("api_json_fail", hero=hero, attempt=attempt, status=resp.status_code, preview=(resp.text or "")[:500])
                 time.sleep(1 * (attempt + 1))
                 continue
             if isinstance(data, dict) and "error" in data:
@@ -185,7 +187,7 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
         if source is None:
             continue
         url = source.get("src")
-        if url is None or url in seen:
+        if url is None or not isinstance(url, str) or url in seen:
             continue
         seen.add(url)
         out.append(url)
@@ -247,6 +249,8 @@ def _sample(hero_query: str) -> tuple[str, bytes, str]:
             try:
                 resp = session.get(url, timeout=20)
                 resp.raise_for_status()
+                if resp.content is None:
+                    raise WikiError("empty response content")
                 local.write_bytes(resp.content)
                 dur = _ffprobe_duration(local)
             except Exception as exc:

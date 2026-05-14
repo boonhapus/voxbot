@@ -42,8 +42,8 @@ async def auto_leave_voice_clients(
 
     for guild_id in expired:
         for vc in bot.voice_clients:
-            if vc.guild.id == guild_id:
-                await vc.disconnect()
+            if vc.guild.id == guild_id:  # pyrefly: ignore[missing-attribute]
+                await vc.disconnect(force=True)
                 _LOGGER.info("job_auto_leave_disconnected", guild_id=guild_id)
                 break
 
