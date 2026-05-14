@@ -149,7 +149,7 @@ class VoxBot(commands.Bot):
                 "Args": repr(args),
                 "Kwargs": repr(kwargs),
             },
-            filename="error_log.txt",
+            filename="error_log.md",
             error=error_detail,
             exc_info=(exc_type, exc, tb),
         )
@@ -180,7 +180,7 @@ class VoxBot(commands.Bot):
                 "User": f"{ctx.author} ({ctx.author.id})",
                 "Details": f"{type(source_error).__name__}: {source_error}",
             },
-            filename="command_error_log.txt",
+            filename="command_error_log.md",
             error=source_error,
         )
 

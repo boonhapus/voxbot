@@ -96,10 +96,14 @@ class SoulCog(commands.GroupCog, name="soul"):
                 title="Soul chat error",
                 details={
                     "User": f"{message.author} ({message.author.id})",
+                    "Guild": f"{message.guild} ({message.guild.id})" if message.guild else "DM",
                     "Channel": getattr(message.channel, "mention", str(message.channel.id)),
+                    "Channel ID": message.channel.id,
+                    "Message ID": message.id,
+                    "Jump URL": message.jump_url,
                     "Message": repr(message.content),
                     "Details": f"{type(exc).__name__}: {exc}",
                 },
-                filename="soul_error_log.txt",
+                filename="soul_error_log.md",
                 error=exc,
             )

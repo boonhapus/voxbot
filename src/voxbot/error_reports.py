@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+import datetime as dt
 from types import TracebackType
 from typing import Any
 import io
@@ -12,13 +13,20 @@ from voxbot.settings import settings
 _LOGGER = structlog.get_logger(__name__)
 
 type ExcInfo = tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
+_MAX_SUMMARY_CHARS = 1900
+
+
+def _shorten(value: Any, *, max_len: int = 280) -> str:
+    text = str(value).replace("`", "'").replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\n", "\\n")
+    return text if len(text) <= max_len else f"{text[: max_len - 1]}…"
 
 
 def _format_traceback(
     *,
     error: BaseException | None = None,
     exc_info: ExcInfo | None = None,
-) -> tuple[BaseException, str]:
+) -> tuple[BaseException, str, TracebackType | None]:
     resolved_error = error
     resolved_type = type(error) if error is not None else None
     resolved_tb = error.__traceback__ if error is not None else None
@@ -43,15 +51,45 @@ def _format_traceback(
     if not trace:
         trace = f"{resolved_type.__name__}: {resolved_error}"
 
-    return resolved_error, trace
+    return resolved_error, trace, resolved_tb
+
+
+def _extract_app_frame(tb: TracebackType | None) -> str | None:
+    if tb is None:
+        return None
+
+    frames = traceback.extract_tb(tb)
+    if not frames:
+        return None
+
+    for frame in reversed(frames):
+        normalized = frame.filename.replace("\\", "/")
+        if "/src/voxbot/" in normalized:
+            rel = normalized.split("/src/voxbot/", maxsplit=1)[1]
+            return f"src/voxbot/{rel}:{frame.lineno} ({frame.name})"
+
+    frame = frames[-1]
+    return f"{frame.filename}:{frame.lineno} ({frame.name})"
+
+
+def _render_summary(*, subject: str, details: Mapping[str, Any]) -> str:
+    lines = [f"🚨 {subject}"]
+
+    for key, value in details.items():
+        lines.append(f"**{key}:** `{_shorten(value, max_len=220)}`")
+
+    summary = "\n".join(lines)
+    if len(summary) <= _MAX_SUMMARY_CHARS:
+        return summary
+
+    return f"{summary[: _MAX_SUMMARY_CHARS - 1]}…"
 
 
 def _render_report(*, title: str, details: Mapping[str, Any], traceback_text: str) -> str:
     lines = [f"🚨 {title}"]
 
     for key, value in details.items():
-        safe = str(value).replace("`", "'")
-        lines.append(f"**{key}:** `{safe}`")
+        lines.append(f"**{key}:** `{_shorten(value, max_len=4000)}`")
 
     lines.append("")
     lines.append(f"**Traceback:**\n```py\n{traceback_text}\n```")
@@ -69,8 +107,19 @@ async def dm_owner_error_report(
     error: BaseException | None = None,
     exc_info: ExcInfo | None = None,
 ) -> None:
-    _, traceback_text = _format_traceback(error=error, exc_info=exc_info)
-    report = _render_report(title=title, details=details, traceback_text=traceback_text)
+    resolved_error, traceback_text, resolved_tb = _format_traceback(error=error, exc_info=exc_info)
+
+    report_details: dict[str, Any] = dict(details)
+    report_details.setdefault("Exception", type(resolved_error).__name__)
+    report_details.setdefault("App Frame", _extract_app_frame(resolved_tb) or "unknown")
+    report_details.setdefault("Release", settings.voxbot_release_sha or "unknown")
+    report_details.setdefault(
+        "Timestamp (UTC)",
+        dt.datetime.now(tz=dt.timezone.utc).isoformat(timespec="seconds"),
+    )
+
+    summary = _render_summary(subject=subject, details=report_details)
+    report = _render_report(title=title, details=report_details, traceback_text=traceback_text)
 
     owner = bot.get_user(settings.bot_owner_id)
     if owner is None:
@@ -86,7 +135,7 @@ async def dm_owner_error_report(
 
     try:
         await owner.send(
-            subject,
+            summary,
             file=discord.File(io.BytesIO(report.encode("utf-8")), filename=filename),
         )
     except discord.HTTPException:
