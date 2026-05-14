@@ -3,6 +3,20 @@
 The bootstrap commands live in [README.md](README.md). This document explains
 the *why* behind each piece, so future maintainers can change things safely.
 
+## Interactive debugging
+
+The bot runs under the `voxbot` user. When you SSH in as `boonhapus` and need to
+inspect or fix something in the bot's environment, use `sudo -u voxbot -i`:
+
+```sh
+sudo -u voxbot -i -- uv run --directory /Users/voxbot/apps/voxbot/current python -c "print('hello from voxbot')"
+```
+
+`-i` starts a login shell so `uv` is on `PATH` and the environment (secrets, etc.)
+is set up correctly. Always use this form for any manual operation on the bot's
+working tree or venv — running as `boonhapus` directly will miss env vars and
+may create files owned by the wrong user.
+
 ## High-level shape
 
 ```
