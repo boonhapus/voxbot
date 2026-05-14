@@ -91,6 +91,6 @@ class SoulCog(commands.GroupCog, name="soul"):
 
             if owner := self.bot.get_user(settings.bot_owner_id):
                 await owner.send(
-                    f"🚨 **Soul chat error** — {message.author.mention} in {message.channel.mention}\n"
+                    f"🚨 **Soul chat error** — {message.author.mention} in {getattr(message.channel, 'mention', str(message.channel.id))}\n"
                     f"```\n{type(exc).__name__}: {exc}\n```"
                 )
