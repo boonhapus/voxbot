@@ -80,4 +80,7 @@ class SoulCog(commands.GroupCog, name="soul"):
 
         except Exception as exc:
             _LOGGER.error("chat_error", exc=type(exc), error=str(exc), user=message.author.id, channel=message.channel.id)
-            await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
+            await message.reply(
+                f"My circuits are a bit fried right now. Try again?\n\n`{type(exc).__name__}: {exc}`",
+                mention_author=False,
+            )
