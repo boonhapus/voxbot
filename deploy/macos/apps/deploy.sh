@@ -45,7 +45,10 @@ fi
 
 OLD_CURRENT="$(readlink "$APP/current" 2>/dev/null || true)"
 ln -sfn "$REL" "$APP/current"
-echo "$SHA" > "$APP/deployed_sha"
+
+# Copy deploy scripts from the new release so Mac-side script fixes
+# (run-bot.sh, run-worker.sh) are picked up without manual re-bootstrap.
+cp "$REL/deploy/macos/apps/"*.sh "$APP/"
 
 # Force-kill old processes (and their children) so launchd restarts cleanly.
 # Negative pid = kill process group; covers uv -> python subprocesses.
@@ -74,6 +77,7 @@ for i in {1..30}; do
   READY="$(redis-cli -u "$REDIS_URL" GET voxbot:health:ready 2>/dev/null || true)"
 
   if [ "$HEALTH_SHA" = "$SHA" ] && [ "$READY" = "true" ]; then
+    echo "$SHA" > "$APP/deployed_sha"
     echo "$LOG_PREFIX deployed $SHA"
     # Prune old releases, keeping the 5 most recent plus current+previous.
     ls -1t "$APP/releases" 2>/dev/null | tail -n +6 | while read -r old; do
@@ -91,15 +95,27 @@ echo "$LOG_PREFIX new release failed health check: $SHA"
 # silently re-rolling the same bad artifact.
 rm -rf "$REL"
 
+# Restore the previous release. If OLD_CURRENT was pruned, pick the newest
+# surviving release. If nothing survives, remove the broken symlink so
+# run-bot.sh doesn't spin on a dead link.
 if [ -n "$OLD_CURRENT" ] && [ -d "$OLD_CURRENT" ]; then
-  ln -sfn "$OLD_CURRENT" "$APP/current"
-  OLD_SHA="$(git -C "$OLD_CURRENT" rev-parse HEAD 2>/dev/null || true)"
+  RESTORE="$OLD_CURRENT"
+else
+  RESTORE="$(ls -1dt "$APP/releases"/*/ 2>/dev/null | head -1)"
+  RESTORE="${RESTORE%/}"
+fi
+
+if [ -n "$RESTORE" ]; then
+  ln -sfn "$RESTORE" "$APP/current"
+  OLD_SHA="$(git -C "$RESTORE" rev-parse HEAD 2>/dev/null || true)"
   if [ -n "$OLD_SHA" ]; then
     echo "$OLD_SHA" > "$APP/deployed_sha"
   fi
-
-  kill_release_pidfile /Users/voxbot/run/voxbot-worker.pid
-  kill_release_pidfile /Users/voxbot/run/voxbot.pid
+else
+  rm -f "$APP/current"
 fi
+
+kill_release_pidfile /Users/voxbot/run/voxbot-worker.pid
+kill_release_pidfile /Users/voxbot/run/voxbot.pid
 
 exit 1
