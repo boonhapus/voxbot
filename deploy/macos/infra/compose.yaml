@@ -3,8 +3,7 @@ services:
     image: redis/redis-stack-server:latest
     restart: unless-stopped
     ports:
-      - "100.126.44.32:6379:6379"
-      - "127.0.0.1:6379:6379"
+      - "6379:6379"
     environment:
       REDIS_ARGS: "--requirepass ${REDIS_PASSWORD} --appendonly yes"
     volumes:
