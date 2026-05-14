@@ -34,13 +34,12 @@ class SoulCog(commands.GroupCog, name="soul"):
             return
 
         sha = settings.voxbot_release_sha
-        github = "https://github.com/boonhapus/voxbot"
-        link = f"{github}/commit/{sha}" if sha else github
+        short = sha[:7] if sha else "unknown"
+        link = f"https://github.com/boonhapus/voxbot/commit/{sha}" if sha else "https://github.com/boonhapus/voxbot"
 
         message = await owner.send(
             f"Hey! I just came back online.\n"
-            f"Release: `{sha or 'unknown'}`\n"
-            f"{link}"
+            f"Release: [`{short}`]({link})"
         )
 
         try:
@@ -92,6 +91,6 @@ class SoulCog(commands.GroupCog, name="soul"):
 
             if owner := self.bot.get_user(settings.bot_owner_id):
                 await owner.send(
-                    f"🚨 **Soul chat error** — user {message.author.id} in {message.channel.id}\n"
+                    f"🚨 **Soul chat error** — {message.author.mention} in {message.channel.mention}\n"
                     f"```\n{type(exc).__name__}: {exc}\n```"
                 )
