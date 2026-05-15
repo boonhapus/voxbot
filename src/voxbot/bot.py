@@ -1,4 +1,5 @@
 import asyncio
+import io
 import signal
 import sys
 
@@ -10,7 +11,7 @@ from voxbot.runtime.docket import BotDocketRuntime
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
 from voxbot.store import runtime
-from voxbot import __project__, error_reports, errors, utils
+from voxbot import __project__, errors, utils
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -41,6 +42,25 @@ class VoxBot(commands.Bot):
         self.exit_code = 0
         self.health_runtime = RedisHealthRuntime()
         self.docket_runtime = BotDocketRuntime(self)
+    
+    @property
+    def me(self) -> discord.User:
+        """
+        The Bot User.
+        
+        If you need to edit the Bot's profile, user `VoxBot.user` instead.
+        """
+        assert self.user is not None, "Attempted to fetch a User while not connected to the Discord Gateway."
+        user = self.get_user(self.user.id)
+        assert user is not None, "Attempted to fetch a User while not connected to the Discord Gateway."
+        return user
+
+    @property
+    def dad(self) -> discord.User:
+        """The Owner User."""
+        user = self.get_user(settings.bot_owner_id)
+        assert user is not None, "Attempted to fetch a User while not connected to the Discord Gateway."
+        return user
 
     def _install_bot_signal_handlers(self) -> None:
         """Handle shutdown events from the OS."""
@@ -66,7 +86,7 @@ class VoxBot(commands.Bot):
 
             await self.load_extension(name=f"voxbot.plugins.{subdir.name}")
     
-    async def _determine_tree_needs_sync(self) -> None:
+    async def _determine_if_tree_needs_sync(self) -> None:
         """Sync the CommandTree if it's necessary."""
         # DEV NOTE: 
         #   Global syncs are rate-limited (2/hr), so skip them when the
@@ -109,7 +129,7 @@ class VoxBot(commands.Bot):
 
         await self.health_runtime.start(self)
         await self._load_plugins()
-        await self._determine_tree_needs_sync()
+        await self._determine_if_tree_needs_sync()
 
         # Manages its own async lifecycle.
         self.docket_runtime.start()
@@ -131,27 +151,23 @@ class VoxBot(commands.Bot):
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_error
         """
-        await self.health_runtime.record_error(exc=Exception(f"{event_method} failed"))
-
         exc_type, exc, tb = sys.exc_info()
-        error_detail = exc or Exception(f"Unknown error in {event_method}")
+
+        _LOGGER.error("bot.on_error", exc_type=exc_type, exc=str(exc), event_method=event_method)
+
+        assert exc_type is not None, "Not handling an active Exception."
+        assert exc is not None, "Not handling an active Exception."
+        assert tb is not None, "Not handling an active Exception."
 
         # Record to health runtime
-        await self.health_runtime.record_error(exc=error_detail)
+        await self.health_runtime.record_error(exc=exc)
 
         # DM owner with a full traceback attachment.
-        await error_reports.dm_owner_error_report(
-            self,
-            subject=f"Error occurred in {event_method}",
-            title=f"Bot error in `{event_method}`",
-            details={
-                "Details": f"{type(error_detail).__name__}: {error_detail}",
-                "Args": repr(args),
-                "Kwargs": repr(kwargs),
-            },
-            filename="error_log.md",
-            error=error_detail,
-            exc_info=(exc_type, exc, tb),
+        mdc_exc = utils.MdExceptionFormatter(exc_info=(exc_type, exc, tb))
+
+        await self.dad.send(
+            f"🚨 **{exc}** — {event_method}",
+            file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
         )
 
         await super().on_error(event_method, *args, **kwargs)
@@ -163,25 +179,33 @@ class VoxBot(commands.Bot):
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_command_error
         """
-        _LOGGER.error("command_error", error=str(error), command=ctx.command.name if ctx.command else "unknown")
+        cause_exc = getattr(error, "original", error)
+        exc_type, exc, tb = type(cause_exc), cause_exc, cause_exc.__traceback__
 
+        _LOGGER.error(
+            "bot.command_error",
+            exc_type=exc_type, exc=str(exc), command=ctx.command.name if ctx.command else "unknown",
+        )
+
+        assert exc_type is not None, "Not handling an active Exception."
+        assert exc is not None, "Not handling an active Exception."
+        assert tb is not None, "Not handling an active Exception."
+
+
+        # Record to health runtime
         await self.health_runtime.record_error(exc=error)
 
+        # Notify the User what's up.
         if isinstance(error, errors.VoxCheckFailure):
             await ctx.send(str(error), ephemeral=True)
 
-        source_error = getattr(error, "original", error)
-        await error_reports.dm_owner_error_report(
-            self,
-            subject=f"Command error in {ctx.command}",
-            title=f"Command `{ctx.command}` failed",
-            details={
-                "Channel": str(ctx.channel),
-                "User": f"{ctx.author} ({ctx.author.id})",
-                "Details": f"{type(source_error).__name__}: {source_error}",
-            },
-            filename="command_error_log.md",
-            error=source_error,
+        # DM owner with a full traceback attachment.
+        mdc_exc = utils.MdExceptionFormatter(exc_info=(exc_type, exc, tb))
+        channel_mention = ctx.me if isinstance(ctx.channel, discord.abc.PrivateChannel) else ctx.channel.mention
+
+        await self.dad.send(
+            f"🚨 **{error}** — {ctx.author.mention} in {channel_mention}",
+            file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
         )
 
         await super().on_command_error(ctx, error)

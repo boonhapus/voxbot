@@ -124,6 +124,7 @@ Use in classes with multiple logical groups. Pad with `─` to ~80–100 chars.
 - Guard listener entry with early returns (bot check, channel whitelist)
 - Catch only known exception types — never bare `except Exception`. Tight exception clauses make failure modes explicit.
 - Exception variable is always short: `except SomeError as exc:` — never `as e:`, `as err:`, etc.
+- **Error delegation**: When a catch block handles an error AND responds to the user (reply, edit_original_response, etc.), it MUST also delegate to the centralized error handler. Use `await self.bot.on_error(event_method, *args)` for event listeners (`on_message`, `on_ready`) or `await self.bot.on_command_error(ctx, error)` for commands. This ensures the health runtime records the error and the owner receives a traceback DM. See `soul/cog.py` for the pattern: catch → user-facing reply → delegate to `bot.on_error`.
 
 ## Jobs pattern (`jobs.py`)
 
