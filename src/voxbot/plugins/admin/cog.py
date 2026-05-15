@@ -3,6 +3,7 @@ from discord import app_commands
 import discord
 import structlog
 
+from voxbot.bot import VoxBot
 from voxbot import checks
 
 from . import schema
@@ -13,7 +14,7 @@ _LOGGER = structlog.get_logger(__name__)
 class AdminCog(commands.GroupCog, name="admin"):
     """Owner-only deployment and health commands."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: VoxBot) -> None:
         self.bot = bot
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────

@@ -182,23 +182,25 @@ class FileStorage:
             assert self._cache is not None, "FileStore is in an invalid state."
 
             bucket = self._cache.setdefault(record.partition_key, [])
-            persisted: Record
 
+            to_persist = record
+            to_persist.updated_at = now
+
+            # UPDATE candidates
             for entry in bucket:
                 if entry.compare(record):
                     entry.data = record.data
-                    entry.updated_at = now
-                    persisted = entry
+                    entry.updated_at = record.updated_at
+                    to_persist = entry
                     break
 
+            # or INSERT
             else:
-                record.updated_at = now
                 bucket.append(record)
-                persisted = record
 
-            await asyncio.to_thread(self._append_wal, WalRecord(record=persisted, operation=Op.UPSERT))
+            await asyncio.to_thread(self._append_wal, WalRecord(record=to_persist, operation=Op.UPSERT))
 
-        return persisted.data
+        return to_persist.data
 
     async def delete(self, record: Record) -> dict[str, Any]:
         """Remove a matching record from its partition, persisting the deletion via the WAL."""

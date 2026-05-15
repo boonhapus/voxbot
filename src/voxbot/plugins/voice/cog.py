@@ -16,6 +16,8 @@ from voxbot import dota_wiki
 from voxbot.errors import MistralError, TTSError
 from voxbot.services.tts import TTSProcessor
 
+from voxbot.bot import VoxBot
+
 from . import ai, state
 from .errors import VoiceCommandError
 
@@ -102,13 +104,7 @@ async def _generate_speech_text(message: str | None, prompt: str | None, voice: 
 
     hero_context = state.vox_model.hero_origins.get(voice or "")
 
-    try:
-        text = await ai.generate_line(prompt, hero_context)
-    except Exception as exc:
-        raise VoiceCommandError(
-            "⚠️ Failed to generate line. Check logs.",
-            log_event="ai_generate_failed", error=str(exc),
-        ) from exc
+    text = await ai.generate_line(prompt, hero_context)
 
     if not text:
         raise VoiceCommandError("⚠️ AI returned an empty line.")
@@ -202,7 +198,7 @@ def _render_listen(elapsed: int, receiver: SpikeReceiver) -> str:
 class VoiceCog(commands.GroupCog, name="voice"):
     """Voice training, TTS playback, and voice-channel listening."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: VoxBot) -> None:
         self.bot = bot
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────

@@ -1,3 +1,5 @@
+import io
+import sys
 
 from pydantic_ai.messages import ModelMessage
 from discord.ext import commands
@@ -5,7 +7,8 @@ import discord
 import structlog
 
 from voxbot.settings import settings
-from voxbot import error_reports
+from voxbot.bot import VoxBot
+from voxbot import utils as vox_utils
 
 from .settings import soul_settings
 from . import ai, memory, utils
@@ -16,7 +19,7 @@ _LOGGER = structlog.get_logger(__name__)
 class SoulCog(commands.GroupCog, name="soul"):
     """It's a chatbot!"""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: VoxBot) -> None:
         self.bot = bot
         self.conversations: dict[int, list[ModelMessage]] = {}
 
@@ -31,27 +34,21 @@ class SoulCog(commands.GroupCog, name="soul"):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         """Notify owner on first ready event after startup."""
-        if not (owner := self.bot.get_user(settings.bot_owner_id)):
-            return
-
         sha = settings.voxbot_release_sha
-        short = sha[:7] if sha else "unknown"
-        link = f"https://github.com/boonhapus/voxbot/commit/{sha}" if sha else "https://github.com/boonhapus/voxbot"
+        url = f"https://github.com/boonhapus/voxbot/commit/{sha}" if sha else "https://github.com/boonhapus/voxbot"
 
-        message = await owner.send(
-            f"Hey! I just came back online.\n"
-            f"Release: [`{short}`]({link})"
+        message = await self.bot.dad.send(
+            f"👋 Hey! I just came back online."
+            f"\nRelease: [`{sha[:7] if sha else 'unknown'}`]({url})",
+            suppress_embeds=True,
         )
 
-        try:
-            await memory.Memories.remember(
-                message=message,
-                fact="Voxbot just came back online and notified me.",
-                category="life_event",
-                person=owner.name,
-            )
-        except Exception:
-            _LOGGER.warning("startup_memory_store_failed")
+        await memory.Memories.remember(
+            message=message,
+            fact="Voxbot just came back online and notified me.",
+            category="life_event",
+            person=self.bot.dad.name,
+        )
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -87,23 +84,11 @@ class SoulCog(commands.GroupCog, name="soul"):
                         )
 
         except Exception as exc:
-            _LOGGER.error("chat_error", exc=type(exc), error=str(exc), user=message.author.id, channel=message.channel.id)
-            await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
+            exc_type, tb = type(exc), exc.__traceback__
 
-            await error_reports.dm_owner_error_report(
-                self.bot,
-                subject="Soul chat error",
-                title="Soul chat error",
-                details={
-                    "User": f"{message.author} ({message.author.id})",
-                    "Guild": f"{message.guild} ({message.guild.id})" if message.guild else "DM",
-                    "Channel": getattr(message.channel, "mention", str(message.channel.id)),
-                    "Channel ID": message.channel.id,
-                    "Message ID": message.id,
-                    "Jump URL": message.jump_url,
-                    "Message": repr(message.content),
-                    "Details": f"{type(exc).__name__}: {exc}",
-                },
-                filename="soul_error_log.md",
-                error=exc,
-            )
+            assert tb is not None, "Not handling an active Exception."
+
+            _LOGGER.error("chat_error", exc=exc_type, error=str(exc), user=message.author.id, channel=message.channel.id)
+
+            await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
+            await self.bot.on_error("on_message", message)

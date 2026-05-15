@@ -3,13 +3,15 @@ from discord import app_commands
 import discord
 import structlog
 
+from voxbot.bot import VoxBot
+
 _LOGGER = structlog.get_logger(__name__)
 
 
 class HealthCog(commands.GroupCog, name="health"):
     """Health plugin cog."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: VoxBot) -> None:
         self.bot = bot
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
