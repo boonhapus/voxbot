@@ -17,6 +17,14 @@ is set up correctly. Always use this form for any manual operation on the bot's
 working tree or venv — running as `boonhapus` directly will miss env vars and
 may create files owned by the wrong user.
 
+**Quoting gotcha**: `sudo -u voxbot -i bash -c '...'` can mangle variable expansion
+because the outer login shell (zsh) intercepts quoting before bash sees it. If a
+command works with a literal value but fails with a `$VAR`, pipe through stdin
+instead:
+```sh
+printf 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" PING\n' | sudo -u voxbot -i bash
+```
+
 If you need to run multiple shell statements, pass the `bash -c` payload in
 single quotes:
 
