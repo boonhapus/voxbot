@@ -36,16 +36,42 @@ voxbot = "voxbot.__main__:cli"
 
 [dependency-groups]
 dev = [
+    "deptry>=0.25.1",
+    "pyrefly>=0.65.0",
     "pytest>=8.0.0",
     "ruff>=0.15.11",
-    "pyrefly>=0.65.0",
+    "types-pyyaml>=6.0.12.20260510",
+    "vulture>=2.16",
 ]
+
+[tool.pyrefly]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py314"
 line-length = 120
 
-[tool.pyrefly]
-
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "W",     # pycodestyle warnings
+    "I",     # isort
+    "UP",    # pyupgrade (modernize syntax for your target version)
+    "B",     # flake8-bugbear (common pitfalls)
+    "SIM",   # flake8-simplify
+    "PT",    # flake8-pytest-style (since you're using pytest)
+    "RUF",   # ruff-specific rules
+]
+
+[tool.vulture]
+min_confidence = 80
+paths = ["src"]
+
+[tool.deptry.per_rule]
+"DEP002" = { ignore = ["types-pyyaml"] }
