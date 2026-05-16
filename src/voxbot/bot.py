@@ -77,7 +77,7 @@ class VoxBot(commands.Bot):
         for sig_num in (signal.SIGINT, signal.SIGTERM):
             try:
                 loop.add_signal_handler(sig_num, handle_signal, sig_num)
-            except (NotImplementedError, RuntimeError):
+            except NotImplementedError, RuntimeError:
                 continue
 
     async def _load_plugins(self) -> None:

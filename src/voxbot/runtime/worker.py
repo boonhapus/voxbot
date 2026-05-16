@@ -23,7 +23,7 @@ async def run_worker() -> int:
     for sig_num in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig_num, stop_event.set)
-        except (NotImplementedError, RuntimeError):
+        except NotImplementedError, RuntimeError:
             continue
 
     # ── LOOP FOREVER ──────────────────────────────────────────────────────────────────
