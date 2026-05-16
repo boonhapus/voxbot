@@ -7,6 +7,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import tempfile
 
 from agent_memory_client.filters import Namespace, UserId
@@ -366,14 +367,27 @@ class RedisAgentMemoryServer:
     # ── private API ───────────────────────────────────────────────────────────────────
 
     @staticmethod
+    def _entity_encode(v: str) -> str:
+        return v.replace("\\", "\\\\").replace(",", "\\,").replace("=", "\\=")
+
+    @staticmethod
+    def _entity_decode(v: str) -> str:
+        return re.sub(r"\\([\\,=])", r"\1", v)
+
+    @staticmethod
     def _metadata_from_entities(entities: list[str] | None) -> dict[str, Any]:
         p = RedisAgentMemoryServer._ENT_PREFIX
-        return {k: v for e in (entities or []) if e.startswith(p) for k, _, v in [e.removeprefix(p).partition("=")]}
+        return {
+            k: RedisAgentMemoryServer._entity_decode(v)
+            for e in (entities or [])
+            if e.startswith(p)
+            for k, _, v in [e.removeprefix(p).partition("=")]
+        }
 
     @staticmethod
     def _entities_from_data(data: dict[str, Any]) -> list[str]:
         p = RedisAgentMemoryServer._ENT_PREFIX
-        return [f"{p}{k}={v}" for k, v in data.items()]
+        return [f"{p}{k}={RedisAgentMemoryServer._entity_encode(str(v))}" for k, v in data.items()]
 
     def _record_from_ams(self, memory: redis_ams.models.MemoryRecord) -> Record:
         data = self._metadata_from_entities(memory.entities)
