@@ -9,25 +9,174 @@ Design:
   * Checkpoint: atomically flush cache to main file, then truncate WAL.
 """
 
-from typing import Any
+from typing import Any, Protocol, TypedDict
 import asyncio
 import contextlib
 import datetime as dt
 import enum
+import functools
+import hashlib
 import json
+import math
 import os
 import pathlib
+import re
 import tempfile
 
 from agent_memory_client import MemoryAPIClient, MemoryClientConfig
 from agent_memory_client.exceptions import MemoryNotFoundError
-from agent_memory_client.filters import Namespace, UserId
+from agent_memory_client.filters import Namespace, Topics, UserId
 from agent_memory_client.models import ClientMemoryRecord, MemoryRecord, MemoryTypeEnum
 import pydantic
 
 from .settings import soul_settings
 
 type Cache = dict[str, list[Record]]
+type Vector = list[float]
+
+
+class SemanticRelevanceProfile(TypedDict):
+    json_min_score: float
+    redis_distance_threshold: float | None
+
+
+_HASH_EMBED_DIM = 256
+_SEMANTIC_RELEVANCE: dict[str, SemanticRelevanceProfile] = {
+    "loose": {"json_min_score": 0.20, "redis_distance_threshold": 0.90},
+    "balanced": {"json_min_score": 0.30, "redis_distance_threshold": 0.75},
+    "strict": {"json_min_score": 0.40, "redis_distance_threshold": 0.60},
+}
+
+
+def _semantic_relevance_profile() -> SemanticRelevanceProfile:
+    key = soul_settings.memory_semantic_relevance.strip().casefold()
+    return _SEMANTIC_RELEVANCE.get(key, _SEMANTIC_RELEVANCE["balanced"])
+
+
+def _json_min_score_threshold() -> float:
+    return _semantic_relevance_profile()["json_min_score"]
+
+
+def _redis_distance_threshold() -> float | None:
+    return _semantic_relevance_profile()["redis_distance_threshold"]
+
+
+def _hashed_embedding(text: str) -> Vector:
+    """Deterministic local embedding fallback when remote embeddings are unavailable."""
+    tokens = re.findall(r"[a-z0-9_]+", text.casefold())
+    vector = [0.0] * _HASH_EMBED_DIM
+    if not tokens:
+        return vector
+
+    for token in tokens:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:2], "big") % _HASH_EMBED_DIM
+        sign = 1.0 if (digest[2] & 1) else -1.0
+        vector[index] += sign
+
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0:
+        return vector
+    return [value / norm for value in vector]
+
+
+class EmbeddingProvider(Protocol):
+    async def embed_document(self, text: str) -> Vector: ...
+
+    async def embed_query(self, text: str) -> Vector: ...
+
+
+class GoogleEmbeddingProvider:
+    """Gemini embedding wrapper with graceful fallback when unavailable."""
+
+    def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
+        self.model = model or soul_settings.memory_embedding_model
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        self._client: Any | None = None
+
+    def _get_client(self) -> Any | None:
+        if not self.api_key:
+            return None
+
+        if self._client is not None:
+            return self._client
+
+        try:
+            from google import genai
+        except Exception:
+            return None
+
+        self._client = genai.Client(api_key=self.api_key)
+        return self._client
+
+    @staticmethod
+    def _build_config(task_type: str) -> Any | None:
+        try:
+            from google.genai import types
+        except Exception:
+            return None
+        return types.EmbedContentConfig(task_type=task_type)
+
+    def _embed(self, text: str, *, task_type: str) -> Vector:
+        payload = text.strip()
+        if not payload:
+            return _hashed_embedding(text)
+
+        client = self._get_client()
+        if client is None:
+            return _hashed_embedding(payload)
+
+        try:
+            kwargs: dict[str, Any] = {}
+            if config := self._build_config(task_type):
+                kwargs["config"] = config
+
+            response = client.models.embed_content(
+                model=self.model,
+                contents=[payload],
+                **kwargs,
+            )
+
+            embeddings = getattr(response, "embeddings", None) or []
+            if embeddings:
+                values = getattr(embeddings[0], "values", None)
+                if values:
+                    return [float(v) for v in values]
+        except Exception:
+            pass
+
+        return _hashed_embedding(payload)
+
+    async def embed_document(self, text: str) -> Vector:
+        fn = functools.partial(self._embed, text=text, task_type="RETRIEVAL_DOCUMENT")
+        return await asyncio.to_thread(fn)
+
+    async def embed_query(self, text: str) -> Vector:
+        fn = functools.partial(self._embed, text=text, task_type="RETRIEVAL_QUERY")
+        return await asyncio.to_thread(fn)
+
+
+def _cosine_similarity(lhs: Vector, rhs: Vector) -> float:
+    if not lhs or not rhs or len(lhs) != len(rhs):
+        return 0.0
+
+    dot = sum(left * right for left, right in zip(lhs, rhs, strict=False))
+    lhs_norm = math.sqrt(sum(v * v for v in lhs))
+    rhs_norm = math.sqrt(sum(v * v for v in rhs))
+    if lhs_norm == 0 or rhs_norm == 0:
+        return 0.0
+
+    return dot / (lhs_norm * rhs_norm)
+
+
+def _keyword_similarity(query: str, candidate: str) -> float:
+    query_tokens = set(re.findall(r"[a-z0-9_]+", query.casefold()))
+    candidate_tokens = set(re.findall(r"[a-z0-9_]+", candidate.casefold()))
+
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+
+    return len(query_tokens & candidate_tokens) / len(query_tokens | candidate_tokens)
 
 
 class NoEntryFound(Exception):
@@ -47,6 +196,7 @@ class Record(pydantic.BaseModel):
     created_at: int = pydantic.Field(default_factory=lambda: int(dt.datetime.now(tz=dt.UTC).timestamp()))
     updated_at: int = pydantic.Field(default_factory=lambda: int(dt.datetime.now(tz=dt.UTC).timestamp()))
     data: dict[str, Any]
+    embedding: Vector = pydantic.Field(default_factory=list)
 
     def compare(self, other: Record) -> bool:
         """Override to customize comparison."""
@@ -75,10 +225,17 @@ class FileStorage:
     All file I/O is offloaded to a thread so the event loop stays unblocked.
     """
 
-    def __init__(self, path: pathlib.Path, *, record_cls: type[Record] = Record) -> None:
+    def __init__(
+        self,
+        path: pathlib.Path,
+        *,
+        record_cls: type[Record] = Record,
+        embedding_provider: EmbeddingProvider | None = None,
+    ) -> None:
         self.path = path
         self.wal_path = self.path.with_name(f"{path.name}-wal")
         self.record_cls = record_cls
+        self.embedding_provider = embedding_provider or GoogleEmbeddingProvider()
         self._lock = asyncio.Lock()
         self._cache: Cache | None = None
 
@@ -182,6 +339,11 @@ class FileStorage:
     async def upsert(self, record: Record) -> dict[str, Any]:
         """Insert or update a record within its partition, persisting via the WAL."""
         now = int(dt.datetime.now(tz=dt.UTC).timestamp())
+        fact = str(record.data.get("fact", "")).strip()
+        if not fact:
+            msg = "record.data['fact'] cannot be empty for semantic memory storage"
+            raise ValueError(msg)
+        record.embedding = await self.embedding_provider.embed_document(fact)
 
         async with self._lock:
             await self._ensure_recovered()
@@ -197,6 +359,7 @@ class FileStorage:
                 if entry.compare(record):
                     entry.data = record.data
                     entry.updated_at = record.updated_at
+                    entry.embedding = record.embedding
                     to_persist = entry
                     break
 
@@ -207,6 +370,54 @@ class FileStorage:
             await asyncio.to_thread(self._append_wal, WalRecord(record=to_persist, operation=Op.UPSERT))
 
         return to_persist.data
+
+    async def semantic_search(
+        self,
+        partition_key: str,
+        query: str,
+        *,
+        category: str | None = None,
+        limit: int = 20,
+    ) -> list[Record]:
+        """Return semantic matches for a partition, ranked best-first."""
+        cleaned_query = query.strip()
+        if not cleaned_query or limit <= 0:
+            return []
+
+        query_embedding = await self.embedding_provider.embed_query(cleaned_query)
+
+        async with self._lock:
+            await self._ensure_recovered()
+            assert self._cache is not None, "FileStore is in an invalid state."
+            records = list(self._cache.get(partition_key, []))
+
+        if category is not None:
+            records = [r for r in records if r.data.get("category") == category]
+
+        threshold = _json_min_score_threshold()
+        scored: list[tuple[float, Record]] = []
+
+        for record in records:
+            fact = str(record.data.get("fact", "")).strip()
+            if not fact:
+                continue
+
+            doc_embedding = record.embedding
+            if not doc_embedding:
+                doc_embedding = await self.embedding_provider.embed_document(fact)
+                record.embedding = doc_embedding
+
+            score = _cosine_similarity(query_embedding, doc_embedding)
+
+            # Fall back to lexical overlap when embeddings are unavailable.
+            if score == 0.0:
+                score = _keyword_similarity(cleaned_query, fact)
+
+            if score >= threshold:
+                scored.append((score, record))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [record for _, record in scored[:limit]]
 
     async def delete(self, record: Record) -> dict[str, Any]:
         """Remove a matching record from its partition, persisting the deletion via the WAL."""
@@ -229,24 +440,27 @@ class FileStorage:
             raise NoEntryFound()
 
 
+_ENT_PREFIX = "vx_"
+"""Prefix for synthetic entities so they don't collide with real entities."""
+
+
 class RedisAgentMemoryServer:
     """Redis Agent Memory Server storage backend.
 
     Talks to ``redislabs/agent-memory-server`` via the ``agent-memory-client`` SDK.
 
-    Because ``ClientMemoryRecord`` has no free-form metadata field, the
-    non-``fact`` keys of ``Record.data`` are serialised as JSON and appended
-    to the AMS ``text`` field after a tab separator.
+    ``ClientMemoryRecord`` has no free-form metadata field, so the non-``fact``
+    keys of ``Record.data`` are stored in the ``entities`` list using a
+    ``key=value`` convention (prefixed with ``vx_``).  Only the fact itself
+    is placed in ``text``, keeping the vectorised content clean.
 
     Maps:
-      * ``partition_key`` → ``user_id``
-      * ``unique_key``   → never sent; always ``"fact"``
-      * ``data["fact"]`` → ``text`` (first segment before tab)
-      * ``data`` (rest)  → JSON suffix on ``text`` after tab
-      * ``data["category"]`` → duplicated as ``topics[0]`` for discoverability
+      * ``partition_key``  → ``user_id``
+      * ``unique_key``    → never sent; always ``"fact"``
+      * ``data["fact"]``  → ``text``
+      * ``data["category"]`` → ``topics[0]``
+      * ``data`` (rest)   → ``entities`` as ``vx_key=value`` strings
     """
-
-    _SEP = "\t"
 
     def __init__(
         self,
@@ -263,20 +477,23 @@ class RedisAgentMemoryServer:
     # ── private API ───────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_fact(text: str) -> str:
-        return text.split(RedisAgentMemoryServer._SEP, 1)[0] if RedisAgentMemoryServer._SEP in text else text
+    def _metadata_from_entities(entities: list[str] | None) -> dict[str, Any]:
+        if not entities:
+            return {}
+        result: dict[str, Any] = {}
+        for e in entities:
+            if e.startswith(_ENT_PREFIX):
+                k, _, v = e[len(_ENT_PREFIX) :].partition("=")
+                result[k] = v
+        return result
 
     @staticmethod
-    def _extract_metadata(text: str) -> dict[str, Any]:
-        if RedisAgentMemoryServer._SEP not in text:
-            return {}
-        return json.loads(text.split(RedisAgentMemoryServer._SEP, 1)[1])
+    def _entities_from_metadata(data: dict[str, Any]) -> list[str]:
+        return [f"{_ENT_PREFIX}{k}={v}" for k, v in data.items()]
 
     def _record_from_ams(self, memory: MemoryRecord) -> Record:
-        text = memory.text
-        fact = self._extract_fact(text)
-        data = self._extract_metadata(text)
-        data["fact"] = fact
+        data = self._metadata_from_entities(memory.entities)
+        data["fact"] = memory.text
         if memory.topics:
             data.setdefault("category", memory.topics[0])
 
@@ -291,12 +508,14 @@ class RedisAgentMemoryServer:
     def _record_to_ams(self, record: Record) -> ClientMemoryRecord:
         data = record.data.copy()
         fact = data.pop("fact", "")
-        payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        data.pop("category", None)
+        categories = [record.data["category"]] if record.data.get("category") else None
         return ClientMemoryRecord(
-            text=f"{fact}{self._SEP}{payload}",
+            text=fact,
             memory_type=MemoryTypeEnum.SEMANTIC,
             user_id=record.partition_key,
-            topics=[data.get("category")] if data.get("category") else None,
+            topics=categories,
+            entities=self._entities_from_metadata(data) or None,
             namespace=self.namespace,
         )
 
@@ -370,11 +589,11 @@ class RedisAgentMemoryServer:
         )
 
         for memory in results.memories:
-            if self._extract_fact(memory.text) == fact:
+            if memory.text == fact:
                 try:
                     await client.edit_long_term_memory(
                         memory_id=memory.id,
-                        updates={"text": ams_rec.text, "topics": ams_rec.topics},
+                        updates={"text": ams_rec.text, "topics": ams_rec.topics, "entities": ams_rec.entities},
                     )
                 except MemoryNotFoundError:
                     await client.create_long_term_memory([ams_rec])
@@ -382,6 +601,32 @@ class RedisAgentMemoryServer:
 
         await client.create_long_term_memory([ams_rec])
         return record.data
+
+    async def semantic_search(
+        self,
+        partition_key: str,
+        query: str,
+        *,
+        category: str | None = None,
+        limit: int = 20,
+    ) -> list[Record]:
+        """Return semantic matches for a partition, ranked best-first."""
+        cleaned_query = query.strip()
+        if not cleaned_query or limit <= 0:
+            return []
+
+        client = await self._client()
+        topics_filter = Topics(any=[category]) if category else None
+
+        results = await client.search_long_term_memory(
+            text=cleaned_query,
+            limit=limit,
+            user_id=UserId(eq=partition_key),
+            namespace=Namespace(eq=self.namespace),
+            topics=topics_filter,
+            distance_threshold=_redis_distance_threshold(),
+        )
+        return [self._record_from_ams(memory) for memory in results.memories]
 
     async def delete(self, record: Record) -> dict[str, Any]:
         """Remove a matching record from its partition."""
@@ -396,7 +641,7 @@ class RedisAgentMemoryServer:
         )
 
         for memory in results.memories:
-            if self._extract_fact(memory.text) == fact:
+            if memory.text == fact:
                 await client.delete_long_term_memories([memory.id])
                 return record.data
 

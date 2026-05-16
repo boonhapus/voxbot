@@ -1,4 +1,4 @@
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 import discord
 
@@ -6,6 +6,7 @@ from voxbot.store import runtime
 
 from . import storage
 from .errors import NoMemoryFound
+from .settings import soul_settings
 
 MemoryCategoryT = Literal[
     "birthday",
@@ -19,6 +20,23 @@ MemoryCategoryT = Literal[
 ]
 
 
+class SoulStorage(Protocol):
+    async def read(self) -> storage.Cache: ...
+
+    async def upsert(self, record: storage.Record) -> dict[str, Any]: ...
+
+    async def delete(self, record: storage.Record) -> dict[str, Any]: ...
+
+    async def semantic_search(
+        self,
+        partition_key: str,
+        query: str,
+        *,
+        category: MemoryCategoryT | None = None,
+        limit: int = 20,
+    ) -> list[storage.Record]: ...
+
+
 class MemoryService:
     """
 
@@ -28,7 +46,12 @@ class MemoryService:
     """
 
     def __init__(self) -> None:
-        self.storage = storage.FileStorage(path=runtime.extend("soul/people.json"))
+        self.storage: SoulStorage
+        backend = soul_settings.memory_backend.strip().casefold()
+        if backend == "redis":
+            self.storage = storage.RedisAgentMemoryServer()
+        else:
+            self.storage = storage.FileStorage(path=runtime.extend("soul/people.json"))
 
     @staticmethod
     def _partition_key(person: discord.Member | discord.User) -> str:
@@ -57,7 +80,15 @@ class MemoryService:
         if message is None:
             return "- No current author; this is a background identity check."
 
-        memories = await self.recall(message, person=message.author.id)
+        query = message.content.strip()
+        memories = await self.recall(
+            message,
+            person=message.author.id,
+            query=query or None,
+            limit=20,
+        )
+        if not memories:
+            memories = await self.recall(message, person=message.author.id)
 
         if not memories:
             return "- No memories for this user."
@@ -70,11 +101,24 @@ class MemoryService:
         *,
         category: MemoryCategoryT | None = None,
         person: str | int | None = None,
+        query: str | None = None,
+        limit: int = 20,
     ) -> list[dict[str, Any]]:
         """Return all stored facts about the person, optionally filtered by category."""
         member = self._resolve_member(message, person_ident=person)
+        partition_key = self._partition_key(member)
+
+        if query is not None and query.strip():
+            records = await self.storage.semantic_search(
+                partition_key=partition_key,
+                query=query,
+                category=category,
+                limit=limit,
+            )
+            return [r.data for r in records]
+
         buffer = await self.storage.read()
-        records = buffer.get(self._partition_key(member), [])
+        records = buffer.get(partition_key, [])
 
         if category is not None:
             records = [r for r in records if r.data.get("category") == category]

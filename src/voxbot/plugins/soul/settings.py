@@ -10,6 +10,8 @@ class SoulSettings(pydantic_settings.BaseSettings):
     memory_backend: str = "json"
     memory_server_url: str = "http://localhost:8000"
     memory_namespace: str = "voxbot:soul"
+    memory_embedding_model: str = "gemini-embedding-001"
+    memory_semantic_relevance: str = "balanced"
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_prefix="SOUL_",
