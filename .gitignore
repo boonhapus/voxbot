@@ -12,6 +12,9 @@ wheels/
 # Data
 .data/
 
+# CI
+.skylos/
+
 # Secrets
 .env
 

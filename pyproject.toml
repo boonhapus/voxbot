@@ -22,7 +22,6 @@ dependencies = [
     "redis>=5.0.0",
     "pydocket>=0.20.2",
     "agent-memory-client>=0.14.0",
-    "certifi>=2025.0.0",
     "jinja2>=3.1.6",
     "pyyaml>=6.0.3",
 ]
@@ -40,14 +39,31 @@ dev = [
     "pyrefly>=0.65.0",
     "pytest>=8.0.0",
     "ruff>=0.15.11",
+    "skylos>=4.15.0",
     "types-pyyaml>=6.0.12.20260510",
     "vulture>=2.16",
 ]
 
 [tool.pyrefly]
+check-unannotated-defs = true
+
+[tool.pyrefly.errors]
+implicit-any = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.skylos]
+# Quality thresholds
+complexity = 10        # max cyclomatic complexity per function
+nesting = 3            # max nesting depth
+max_args = 5           # max function parameters
+max_lines = 50         # max function length
+duplicate_strings = 3  # flag string literals repeated this many times
+ignore = [
+    "SKY-D223",  # https://docs.skylos.dev/rules-reference#sky-d223--undeclared-dependency
+    "SKY-Q802",  # https://docs.skylos.dev/rules-reference#sky-q802--distance-from-main-sequence
+]
 
 [tool.ruff]
 target-version = "py314"
@@ -55,6 +71,10 @@ line-length = 120
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.ruff.lint.isort]
+from-first = true
+split-on-trailing-comma = true
 
 [tool.ruff.lint]
 select = [
@@ -68,10 +88,10 @@ select = [
     "PT",    # flake8-pytest-style (since you're using pytest)
     "RUF",   # ruff-specific rules
 ]
+ignore = [
+    "B008",  # function-call-in-default-argument
+]
 
-[tool.vulture]
-min_confidence = 80
-paths = ["src"]
-
-[tool.deptry.per_rule]
-"DEP002" = { ignore = ["types-pyyaml"] }
+[tool.deptry.per_rule_ignores]
+"DEP002" = ["colorama"]
+"DEP003" = ["voxbot"]
