@@ -34,7 +34,7 @@ class SoulCog(commands.GroupCog, name="soul"):
         url = f"https://github.com/boonhapus/voxbot/commit/{sha}" if sha else "https://github.com/boonhapus/voxbot"
 
         message = await self.bot.dad.send(
-            f"👋 Hey! I just came back online.\nRelease: [`{sha[:7] if sha else 'unknown'}`]({url})",
+            f"👋 Hey! I just came back online.\n\nRelease: [`{sha[:7] if sha else 'unknown'}`]({url})",
             suppress_embeds=True,
         )
 
