@@ -1,5 +1,7 @@
 import dataclasses
 import datetime as dt
+import io
+import sys
 import zoneinfo
 
 from jinja2 import TemplateNotFound
@@ -8,6 +10,8 @@ import discord
 import pydantic
 import structlog
 
+from voxbot import utils as vox_utils
+from voxbot.bot import VoxBot
 from voxbot.settings import settings
 
 from . import utils
@@ -22,7 +26,7 @@ _LOGGER = structlog.get_logger(__name__)
 class DiscordDeps:
     """External data pushed into every agent call."""
 
-    bot: discord.Client
+    bot: VoxBot
     message: discord.Message | None = None
 
 
@@ -48,8 +52,19 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
     try:
         memory_summary = await Memories.summary(ctx.deps.message)
     except Exception as exc:
-        _LOGGER.warning("memory_summary_unavailable", error=str(exc))
+        _LOGGER.error("memory_summary_unavailable", error=str(exc))
         memory_summary = "- Memories unavailable right now."
+
+        exc_type, _exc, tb = sys.exc_info()
+        assert exc_type is not None
+        assert _exc is not None
+        assert tb is not None
+        mdc_exc = vox_utils.MdExceptionFormatter(exc_info=(exc_type, _exc, tb))
+
+        await ctx.deps.bot.dad.send(
+            f"🚨 **{_exc}** — system prompt failed",
+            file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
+        )
 
     try:
         prompt = utils.load_prompt(
@@ -62,6 +77,17 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         prompt = (
             "You are Voxbot - or 'Vox' for short - a Discord-native participant with a dry, curious, "
             "slightly mischievous personality. You are concise, socially aware, and comfortable staying quiet.\n"
+        )
+
+        exc_type, _exc, tb = sys.exc_info()
+        assert exc_type is not None
+        assert _exc is not None
+        assert tb is not None
+        mdc_exc = vox_utils.MdExceptionFormatter(exc_info=(exc_type, _exc, tb))
+
+        await ctx.deps.bot.dad.send(
+            f"🚨 **{_exc}** — system prompt failed",
+            file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
         )
 
     return prompt

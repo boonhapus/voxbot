@@ -15,7 +15,9 @@ services:
       retries: 10
 
   agent-memory-api:
-    image: redislabs/agent-memory-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ams
     restart: unless-stopped
     depends_on:
       redis:
@@ -50,7 +52,9 @@ services:
       - "8000"
 
   agent-memory-worker:
-    image: redislabs/agent-memory-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ams
     restart: unless-stopped
     depends_on:
       redis:

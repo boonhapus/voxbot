@@ -1,9 +1,11 @@
+from typing import cast
 import datetime as dt
 
 from discord.ext import commands
 from docket import Depends, Perpetual
 import structlog
 
+from voxbot.bot import VoxBot
 from voxbot.runtime.docket import BotDocketRuntime, durable_task
 
 _LOGGER = structlog.get_logger(__name__)
@@ -28,7 +30,7 @@ async def soul_identity_check(
     try:
         r = await ai.soul_agent.run(
             p,
-            deps=ai.DiscordDeps(bot=bot),
+            deps=ai.DiscordDeps(bot=cast(VoxBot, bot)),
             output_type=ai.DiscordResponse,
         )
 

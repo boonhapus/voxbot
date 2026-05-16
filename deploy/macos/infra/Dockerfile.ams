@@ -1,0 +1,2 @@
+FROM redislabs/agent-memory-server:latest
+RUN /app/.venv/bin/python -m pip install --no-cache-dir google-cloud-aiplatform google-auth
