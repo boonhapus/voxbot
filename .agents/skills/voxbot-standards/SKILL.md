@@ -126,6 +126,15 @@ Use in classes with multiple logical groups. Pad with `─` to ~80–100 chars.
 - Exception variable is always short: `except SomeError as exc:` — never `as e:`, `as err:`, etc.
 - **Error delegation**: When a catch block handles an error AND responds to the user (reply, edit_original_response, etc.), it MUST also delegate to the centralized error handler. Use `await self.bot.on_error(event_method, *args)` for event listeners (`on_message`, `on_ready`) or `await self.bot.on_command_error(ctx, error)` for commands. This ensures the health runtime records the error and the owner receives a traceback DM. See `soul/cog.py` for the pattern: catch → user-facing reply → delegate to `bot.on_error`.
 
+## Sending messages with URLs
+
+When a message contains a URL, pass `suppress_embeds=True` to prevent Discord from auto-unfurling the link into an embed. Hyperlink embeds clutter the chat window. Omit this only when the entire purpose of the message **is** to send an embed.
+
+```python
+await interaction.followup.send("See https://example.com", suppress_embeds=True)
+await ctx.send("Check this: https://example.com", suppress_embeds=True)
+```
+
 ## Jobs pattern (`jobs.py`)
 
 ```python
