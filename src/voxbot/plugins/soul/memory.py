@@ -7,7 +7,7 @@ from voxbot.store import runtime
 from . import storage
 from .errors import NoMemoryFound
 
-MemoryCategory = Literal[
+MemoryCategoryT = Literal[
     "birthday",
     "job",
     "holiday",
@@ -53,32 +53,42 @@ class MemoryService:
     # ── PUBLIC INTERFACE ──────────────────────────────────────────────────────
 
     async def summary(self, message: discord.Message | None) -> str:
+        """Return a bulleted summary of all memories about the person."""
         if message is None:
             return "- No current author; this is a background identity check."
 
-        member = self._resolve_member(message, person_ident=message.author.id)
-        buffer = await self.storage.read()
-        primary_partition = self._partition_key(member)
-        legacy_partition = member.name
-        memories = buffer.get(primary_partition) or buffer.get(legacy_partition)
+        memories = await self.recall(message, person=message.author.id)
 
         if not memories:
             return "- No memories for this user."
 
-        lines: list[str] = []
+        return "\n".join(f"- {m['category']}: {m['fact']}" for m in memories[-20:])
 
-        for record in memories[-20:]:
-            lines.append(f"- {record.data['category']}: {record.data['fact']}")
+    async def recall(
+        self,
+        message: discord.Message,
+        *,
+        category: MemoryCategoryT | None = None,
+        person: str | int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return all stored facts about the person, optionally filtered by category."""
+        member = self._resolve_member(message, person_ident=person)
+        buffer = await self.storage.read()
+        records = buffer.get(self._partition_key(member), [])
 
-        return "\n".join(lines)
+        if category is not None:
+            records = [r for r in records if r.data.get("category") == category]
+
+        return [r.data for r in records]
 
     async def remember(
         self,
         message: discord.Message,
         fact: str,
-        category: MemoryCategory = "other",
+        category: MemoryCategoryT = "other",
         person: str | int | None = None,
     ) -> dict[str, Any]:
+        """Insert or update a fact about the person, returning the persisted data."""
         member = self._resolve_member(message, person_ident=person)
 
         record = storage.Record.model_validate(
@@ -104,12 +114,14 @@ class MemoryService:
         self,
         message: discord.Message,
         fact: str,
-        category: MemoryCategory | None = None,
+        category: MemoryCategoryT | None = None,
         person: str | int | None = None,
     ) -> dict[str, Any]:
+        """Delete a matching fact for the person, raising NoMemoryFound if absent."""
         member = self._resolve_member(message, person_ident=person)
 
         record_data = {
+            "partition_key": self._partition_key(member),
             "unique_key": "fact",
             "data": {
                 "category": category,
@@ -117,16 +129,12 @@ class MemoryService:
             },
         }
 
-        record = storage.Record.model_validate({"partition_key": self._partition_key(member), **record_data})
+        record = storage.Record.model_validate(record_data)
+
         try:
             return await self.storage.delete(record)
         except storage.NoEntryFound as exc:
-            # Backward-compat: existing memories may still be keyed by username.
-            legacy = storage.Record.model_validate({"partition_key": member.name, **record_data})
-            try:
-                return await self.storage.delete(legacy)
-            except storage.NoEntryFound:
-                raise NoMemoryFound() from exc
+            raise NoMemoryFound() from exc
 
 
 Memories = MemoryService()

@@ -11,7 +11,7 @@ from voxbot.settings import settings
 from . import utils
 from .actions import BotAIActionT
 from .errors import NoMemoryFound
-from .memory import Memories, MemoryCategory
+from .memory import Memories, MemoryCategoryT
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -124,7 +124,7 @@ async def change_own_display_name(
 async def remember_person_fact(
     ctx: RunContext[DiscordDeps],
     fact: str,
-    category: MemoryCategory = "other",
+    category: MemoryCategoryT = "other",
     person: str | int | None = None,
 ) -> str:
     """Persist an explicitly stated, stable fact about a person to long-term storage.
@@ -152,7 +152,7 @@ async def remember_person_fact(
 async def forget_person_fact(
     ctx: RunContext[DiscordDeps],
     fact_fragment: str = "",
-    category: MemoryCategory | None = None,
+    category: MemoryCategoryT | None = None,
     person: str | int | None = None,
 ) -> str:
     """Remove saved facts when a user asks Voxbot to forget or correct stale information."""
