@@ -41,7 +41,6 @@ class SoulCog(commands.GroupCog, name="soul"):
         await memory.Memories.remember(
             message=message,
             fact="Voxbot just came back online and notified me.",
-            category="life_event",
             person=self.bot.dad.name,
         )
 

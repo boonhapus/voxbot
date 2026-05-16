@@ -13,7 +13,7 @@ from voxbot.settings import settings
 from . import utils
 from .actions import BotAIActionT
 from .errors import NoMemoryFound
-from .memory import Memories, MemoryCategoryT
+from .memory import Memories
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -144,7 +144,6 @@ async def get_current_time(ctx: RunContext[DiscordDeps]) -> str:
 async def remember_person_fact(
     ctx: RunContext[DiscordDeps],
     fact: str,
-    category: MemoryCategoryT = "other",
     person: str | int | None = None,
 ) -> str:
     """Persist an explicitly stated, stable fact about a person to long-term storage.
@@ -161,34 +160,47 @@ async def remember_person_fact(
     if not ctx.deps.message:
         return "No memory stored because we're missing the Discord message."
 
-    memory = await Memories.remember(message=ctx.deps.message, fact=cleaned_fact, category=category, person=person)
+    memory = await Memories.remember(message=ctx.deps.message, fact=cleaned_fact, person=person)
     person_name = memory.get("person") or str(person or ctx.deps.message.author.display_name)
     remembered_fact = memory.get("fact", cleaned_fact)
+    memory_id = memory.get("memory_id", "")
 
-    return f"Remembered for {person_name}: {remembered_fact}"
+    return f"Remembered [{memory_id}] for {person_name}: {remembered_fact}"
 
 
 @soul_agent.tool
 async def forget_person_fact(
     ctx: RunContext[DiscordDeps],
+    memory_id: str = "",
     fact_fragment: str = "",
-    category: MemoryCategoryT | None = None,
     person: str | int | None = None,
 ) -> str:
-    """Remove saved facts when a user asks Voxbot to forget or correct stale information."""
+    """Remove saved facts when a user asks Voxbot to forget or correct stale information.
+
+    To delete a specific memory, pass its ``memory_id`` (shown in square brackets
+    when a fact is remembered or in `memory_summary`).
+    If no ``memory_id`` is given, ``fact_fragment`` is treated as a semantic
+    query and the top match is deleted.
+    """
     cleaned_fact = " ".join(fact_fragment.strip().split())
 
-    if not cleaned_fact and category is None:
-        return "No memory forgotten because neither a fact nor category was provided."
+    if not memory_id and not cleaned_fact:
+        return "No memory forgotten because neither a memory_id nor fact was provided."
 
     if not ctx.deps.message:
         return "No memory forgotten because we're missing the Discord message."
 
     try:
-        memory = await Memories.forget(message=ctx.deps.message, fact=cleaned_fact, category=category, person=person)
+        memory = await Memories.forget(
+            message=ctx.deps.message,
+            fact=cleaned_fact,
+            person=person,
+            memory_id=memory_id or None,
+        )
     except NoMemoryFound:
         return "No matching memory found."
     else:
         person_name = memory.get("person") or str(person or ctx.deps.message.author.display_name)
         forgotten_fact = memory.get("fact", cleaned_fact)
-        return f"Forget about {forgotten_fact} for {person_name}"
+        mid = memory.get("memory_id", memory_id)
+        return f"Forget [{mid}] {forgotten_fact} for {person_name}"

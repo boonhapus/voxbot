@@ -1,4 +1,5 @@
-from typing import Any, Literal, Protocol, cast
+from typing import Any, cast
+import secrets
 
 import discord
 
@@ -8,55 +9,22 @@ from . import storage
 from .errors import NoMemoryFound
 from .settings import soul_settings
 
-MemoryCategoryT = Literal[
-    "birthday",
-    "job",
-    "holiday",
-    "preference",
-    "relationship",
-    "life_event",
-    "identity",
-    "other",
-]
-
-
-class SoulStorage(Protocol):
-    async def read(self) -> storage.Cache: ...
-
-    async def upsert(self, record: storage.Record) -> dict[str, Any]: ...
-
-    async def delete(self, record: storage.Record) -> dict[str, Any]: ...
-
-    async def semantic_search(
-        self,
-        partition_key: str,
-        query: str,
-        *,
-        category: MemoryCategoryT | None = None,
-        limit: int = 20,
-    ) -> list[storage.Record]: ...
-
 
 class MemoryService:
     """
+    High-level CRUD facade for per-user memories.
 
-    Storage types:
-      HOT  - :memory: , Redis
-      COLD - file.json , sqlite.db
+    Selects the storage backend (``FileStorage`` or ``RedisAgentMemoryServer``)
+    based on ``soul_settings.memory_backend``.  Each memory is a structured
+    fact (confidence, source) keyed by Discord user ID and
+    optionally searchable via semantic (embedding) similarity.
     """
 
     def __init__(self) -> None:
-        self.storage: SoulStorage
-        backend = soul_settings.memory_backend.strip().casefold()
-        if backend == "redis":
-            self.storage = storage.RedisAgentMemoryServer()
+        if soul_settings.memory_backend == "redis":
+            self.storage: storage.StorageT = storage.RedisAgentMemoryServer()
         else:
-            self.storage = storage.FileStorage(path=runtime.extend("soul/people.json"))
-
-    @staticmethod
-    def _partition_key(person: discord.Member | discord.User) -> str:
-        # Prefer stable IDs so memories remain attached across username changes.
-        return str(person.id)
+            self.storage: storage.StorageT = storage.FileStorage(path=runtime.extend("soul/people.json"))
 
     @staticmethod
     def _resolve_member(message: discord.Message, *, person_ident: str | int | None = None) -> discord.Member:
@@ -93,35 +61,29 @@ class MemoryService:
         if not memories:
             return "- No memories for this user."
 
-        return "\n".join(f"- {m['category']}: {m['fact']}" for m in memories[-20:])
+        return "\n".join(f"- [{m.get('memory_id', '???????')}] {m['fact']}" for m in memories[-20:])
 
     async def recall(
         self,
         message: discord.Message,
         *,
-        category: MemoryCategoryT | None = None,
         person: str | int | None = None,
         query: str | None = None,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        """Return all stored facts about the person, optionally filtered by category."""
+        """Return stored facts about the person, optionally ranked by semantic query."""
         member = self._resolve_member(message, person_ident=person)
-        partition_key = self._partition_key(member)
 
         if query is not None and query.strip():
             records = await self.storage.semantic_search(
-                partition_key=partition_key,
+                partition=str(member.id),
                 query=query,
-                category=category,
                 limit=limit,
             )
             return [r.data for r in records]
 
         buffer = await self.storage.read()
-        records = buffer.get(partition_key, [])
-
-        if category is not None:
-            records = [r for r in records if r.data.get("category") == category]
+        records = buffer.get(str(member.id), [])
 
         return [r.data for r in records]
 
@@ -129,7 +91,6 @@ class MemoryService:
         self,
         message: discord.Message,
         fact: str,
-        category: MemoryCategoryT = "other",
         person: str | int | None = None,
     ) -> dict[str, Any]:
         """Insert or update a fact about the person, returning the persisted data."""
@@ -137,13 +98,14 @@ class MemoryService:
 
         record = storage.Record.model_validate(
             {
-                "partition_key": self._partition_key(member),
-                "unique_key": "fact",
+                "unique_key": "memory_id",
+                "partition_key": "person_id",
+                "semantic_key": "fact",
                 "data": {
-                    "category": category,
-                    "person": member.name,
-                    "person_id": member.id,
+                    "memory_id": secrets.token_hex(4)[:7],
+                    "person_id": str(member.id),
                     "fact": fact,
+                    "person": member.name,
                     "confidence": "explicit",
                     "source": "discord",
                     "message_id": message.id if message else None,
@@ -157,19 +119,39 @@ class MemoryService:
     async def forget(
         self,
         message: discord.Message,
-        fact: str,
-        category: MemoryCategoryT | None = None,
+        fact: str = "",
         person: str | int | None = None,
+        memory_id: str | None = None,
     ) -> dict[str, Any]:
-        """Delete a matching fact for the person, raising NoMemoryFound if absent."""
-        member = self._resolve_member(message, person_ident=person)
+        """
+        Delete a memory for the person, raising NoMemoryFound if absent.
 
-        record_data = {
-            "partition_key": self._partition_key(member),
-            "unique_key": "fact",
+        If *memory_id* is provided the record is removed by its unique identifier.
+        Otherwise, the *fact* string is used as a semantic query and the top
+        matching memory is deleted.
+        """
+        member = self._resolve_member(message, person_ident=person)
+        partition = str(member.id)
+        memory_id = memory_id.strip() or None if memory_id is not None else None
+
+        if memory_id is None and fact.strip():
+            # Find the best semantic match first, then delete by concrete ID so the
+            # final removal remains deterministic.
+            candidates = await self.storage.semantic_search(partition=partition, query=fact, limit=1)
+
+            if not candidates:
+                raise NoMemoryFound()
+
+            memory_id = str(candidates[0].data.get("memory_id") or "").strip() or None
+
+        record_data: dict[str, Any] = {
+            "unique_key": "memory_id",
+            "partition_key": "person_id",
+            "semantic_key": "fact",
             "data": {
-                "category": category,
-                "fact": fact,
+                "memory_id": memory_id,
+                "person_id": partition,
+                "fact": "" if memory_id is not None else fact,
             },
         }
 
