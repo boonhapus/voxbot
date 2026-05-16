@@ -64,6 +64,14 @@ def current_context(message: discord.Message | None) -> str:
 
 
 def trim_conversation(messages: list[ModelMessage], *, max_turns: int = 20) -> list[ModelMessage]:
+    """Keep the last *max_turns* user turns, discarding older messages.
+
+    Trims at user-request boundaries (``ModelRequest`` messages containing
+    ``UserPromptPart``) so request-response pairs are never split.  A simple
+    FIFO trim (e.g. ``deque(maxlen=N)``) cannot express this because the
+    conversation list contains interleaved requests, responses, and tool
+    messages that don't correspond 1:1 with user turns.
+    """
     user_request_indexes = [
         idx
         for idx, message in enumerate(messages)
