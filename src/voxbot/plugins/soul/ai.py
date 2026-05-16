@@ -1,4 +1,6 @@
 import dataclasses
+import datetime as dt
+import zoneinfo
 
 from jinja2 import TemplateNotFound
 from pydantic_ai import Agent, ModelSettings, RunContext
@@ -118,6 +120,24 @@ async def change_own_display_name(
 
     except discord.HTTPException as exc:
         return f"Name not changed: Discord rejected the nickname update ({exc})."
+
+
+@soul_agent.tool
+async def get_current_time(ctx: RunContext[DiscordDeps]) -> str:
+    """Return the current time in the user's known timezone, defaulting to US/Eastern.
+
+    Looks up a stored IANA timezone (e.g. "America/Chicago", "Europe/London") in
+    the message author's memories. Falls back to US/Eastern when no valid
+    timezone fact is remembered.
+    """
+    memories = await Memories.recall(ctx.deps.message) if ctx.deps.message else []  # pyrefly: ignore[implicit-any-empty-container]
+    tokens = (token.strip(".,\"'`") for memory in memories for token in str(memory.get("fact", "")).split())
+    remembered = next((t for t in tokens if t in zoneinfo.available_timezones()), None)
+
+    tz_name = remembered or "US/Eastern"
+    source = "memory" if remembered else "default"
+    now = dt.datetime.now(tz=zoneinfo.ZoneInfo(tz_name))
+    return f"{now.strftime('%Y-%m-%d %H:%M:%S %Z')} ({tz_name}, source: {source})"
 
 
 @soul_agent.tool
