@@ -1,14 +1,14 @@
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from typing import Any
+from typing import Any, ClassVar
 import asyncio
 
 from discord.ext import commands
 import docket
 import structlog
 
-from voxbot.settings import settings
 from voxbot import __project__
+from voxbot.settings import settings
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -17,7 +17,8 @@ type _TaskFuncT = Callable[..., Awaitable[Any]]
 
 class DurableTasks:
     """Stores tasks decorated with @durable_task."""
-    _TASKS: list[_TaskFuncT] = []
+
+    _TASKS: ClassVar[list[_TaskFuncT]] = []
 
     @classmethod
     def register[T: _TaskFuncT](cls, func: T) -> T:
@@ -45,7 +46,7 @@ class BotDocketRuntime:
         self.bot = bot
         self.__class__._BOT_INSTANCE = bot
         self._main_task: asyncio.Task[None] | None = None
-    
+
     @classmethod
     def fetch_bot_instance(cls) -> commands.Bot:
         """Allow the Bot instance to be injected into tasks."""
@@ -83,7 +84,7 @@ class BotDocketRuntime:
 
         with suppress(asyncio.CancelledError):
             await self._main_task
-        
+
         self._main_task = None
         self.__class__._BOT_INSTANCE = None
         _LOGGER.info("bot_docket_runtime_stopped")

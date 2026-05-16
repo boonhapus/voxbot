@@ -1,17 +1,13 @@
-import io
-import sys
-
-from pydantic_ai.messages import ModelMessage
 from discord.ext import commands
+from pydantic_ai.messages import ModelMessage
 import discord
 import structlog
 
-from voxbot.settings import settings
 from voxbot.bot import VoxBot
-from voxbot import utils as vox_utils
+from voxbot.settings import settings
 
-from .settings import soul_settings
 from . import ai, memory, utils
+from .settings import soul_settings
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -38,8 +34,7 @@ class SoulCog(commands.GroupCog, name="soul"):
         url = f"https://github.com/boonhapus/voxbot/commit/{sha}" if sha else "https://github.com/boonhapus/voxbot"
 
         message = await self.bot.dad.send(
-            f"👋 Hey! I just came back online."
-            f"\nRelease: [`{sha[:7] if sha else 'unknown'}`]({url})",
+            f"👋 Hey! I just came back online.\nRelease: [`{sha[:7] if sha else 'unknown'}`]({url})",
             suppress_embeds=True,
         )
 
@@ -55,7 +50,7 @@ class SoulCog(commands.GroupCog, name="soul"):
         """Route whitelisted messages through the AI soul agent and dispatch resulting actions."""
         if message.author.bot:
             return
-        
+
         is_channel_whitelisted = message.channel.id in soul_settings.channel_ids
         is_private_whitelisted = message.guild is None and message.author.id == settings.bot_owner_id
 
@@ -80,7 +75,9 @@ class SoulCog(commands.GroupCog, name="soul"):
                     except discord.HTTPException as exc:
                         _LOGGER.warning(
                             "soul_action_failed",
-                            error=str(exc), message=message.id, action=action.kind,
+                            error=str(exc),
+                            message=message.id,
+                            action=action.kind,
                         )
 
         except Exception as exc:
@@ -88,7 +85,9 @@ class SoulCog(commands.GroupCog, name="soul"):
 
             assert tb is not None, "Not handling an active Exception."
 
-            _LOGGER.error("chat_error", exc=exc_type, error=str(exc), user=message.author.id, channel=message.channel.id)
+            _LOGGER.error(
+                "chat_error", exc=exc_type, error=str(exc), user=message.author.id, channel=message.channel.id
+            )
 
             await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
             await self.bot.on_error("on_message", message)

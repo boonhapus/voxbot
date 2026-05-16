@@ -6,7 +6,7 @@ class SoulSettings(pydantic_settings.BaseSettings):
     """Soul plugin configuration loaded from .env."""
 
     channel_ids: list[int] = pydantic.Field(default_factory=list)
-    
+
     memory_backend: str = "json"
     memory_server_url: str = "http://localhost:8000"
     memory_namespace: str = "voxbot:soul"

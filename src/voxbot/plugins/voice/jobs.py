@@ -16,7 +16,7 @@ IDLE_DISCONNECT_SECONDS = 300
 
 @durable_task
 async def sync_voices(
-    perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=300), automatic=True),
+    _perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=300), automatic=True),
 ) -> None:
     """Sync available voices from the Mistral API."""
     _LOGGER.info("job_sync_voices_started")
@@ -32,7 +32,7 @@ async def sync_voices(
 @durable_task
 async def auto_leave_voice_clients(
     bot: commands.Bot = Depends(BotDocketRuntime.fetch_bot_instance),
-    perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=60), automatic=True),
+    _perpetual: Perpetual = Perpetual(every=dt.timedelta(seconds=60), automatic=True),
 ) -> None:
     """Auto-disconnect voice clients idle past the disconnect threshold."""
     _LOGGER.info("job_auto_leave_started")

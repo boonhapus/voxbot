@@ -12,7 +12,7 @@ _LOGGER = structlog.get_logger(__name__)
 @durable_task
 async def soul_identity_check(
     bot: commands.Bot = Depends(BotDocketRuntime.fetch_bot_instance),
-    perpetual: Perpetual = Perpetual(every=dt.timedelta(hours=6), automatic=True),
+    _perpetual: Perpetual = Perpetual(every=dt.timedelta(hours=6), automatic=True),
 ) -> None:
     """Periodic identity check for the bot's own display name."""
     from voxbot.plugins.soul import ai

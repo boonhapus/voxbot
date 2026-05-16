@@ -19,8 +19,7 @@ _LOGGER = structlog.get_logger(__name__)
 WIKI_BASE = "https://dota2.fandom.com"
 RESPONSES_CATEGORY_PATH = "/wiki/Category:Responses"
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 TARGET_MIN_SECONDS = 20.0
@@ -39,19 +38,21 @@ class WikiError(Exception):
 
 def _session() -> niquests.Session:
     s = niquests.Session()
-    s.headers.update({
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "identity",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Cache-Control": "max-age=0",
-        "Referer": "https://dota2.fandom.com/",
-    })
+    s.headers.update(
+        {
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "identity",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Cache-Control": "max-age=0",
+            "Referer": "https://dota2.fandom.com/",
+        }
+    )
     return s
 
 
@@ -95,13 +96,25 @@ def list_heroes(session: niquests.Session) -> dict[str, str]:
         for attempt in range(_FETCH_RETRIES):
             try:
                 resp = session.get(api_url, params=params, timeout=20)
-                _LOGGER.info("api_response", url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=(resp.text or "")[:500])
+                _LOGGER.info(
+                    "api_response",
+                    url=resp.url,
+                    status=resp.status_code,
+                    content_type=resp.headers.get("content-type", ""),
+                    preview=(resp.text or "")[:500],
+                )
                 resp.raise_for_status()
                 try:
                     data = resp.json()
                 except ValueError as exc:
-                    last_err = f"invalid JSON: {exc}, preview: {(resp.text or "")[:500]}"
-                    _LOGGER.warning("api_json_fail", hero="list_heroes", attempt=attempt, status=resp.status_code, preview=(resp.text or "")[:500])
+                    last_err = f"invalid JSON: {exc}, preview: {(resp.text or '')[:500]}"
+                    _LOGGER.warning(
+                        "api_json_fail",
+                        hero="list_heroes",
+                        attempt=attempt,
+                        status=resp.status_code,
+                        preview=(resp.text or "")[:500],
+                    )
                     time.sleep(1 * (attempt + 1))
                     continue
                 if isinstance(data, dict) and "error" in data:
@@ -154,13 +167,26 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
     for attempt in range(_FETCH_RETRIES):
         try:
             resp = session.get(api_url, params=params, timeout=20)
-            _LOGGER.info("api_response", hero=hero, url=resp.url, status=resp.status_code, content_type=resp.headers.get("content-type", ""), preview=(resp.text or "")[:500])
+            _LOGGER.info(
+                "api_response",
+                hero=hero,
+                url=resp.url,
+                status=resp.status_code,
+                content_type=resp.headers.get("content-type", ""),
+                preview=(resp.text or "")[:500],
+            )
             resp.raise_for_status()
             try:
                 data = resp.json()
             except ValueError as exc:
-                last_err = f"invalid JSON: {exc}, preview: {(resp.text or "")[:500]}"
-                _LOGGER.warning("api_json_fail", hero=hero, attempt=attempt, status=resp.status_code, preview=(resp.text or "")[:500])
+                last_err = f"invalid JSON: {exc}, preview: {(resp.text or '')[:500]}"
+                _LOGGER.warning(
+                    "api_json_fail",
+                    hero=hero,
+                    attempt=attempt,
+                    status=resp.status_code,
+                    preview=(resp.text or "")[:500],
+                )
                 time.sleep(1 * (attempt + 1))
                 continue
             if isinstance(data, dict) and "error" in data:
@@ -197,9 +223,13 @@ def get_audio_urls(session: niquests.Session, hero: str) -> list[str]:
 def _ffprobe_duration(path: pathlib.Path) -> float:
     out = subprocess.check_output(
         [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             str(path),
         ],
         text=True,
@@ -213,9 +243,14 @@ def _ffmpeg_concat(inputs: list[pathlib.Path], output: pathlib.Path) -> None:
         cmd += ["-i", str(p)]
     streams = "".join(f"[{i}:a]" for i in range(len(inputs)))
     cmd += [
-        "-filter_complex", f"{streams}concat=n={len(inputs)}:v=0:a=1[out]",
-        "-map", "[out]",
-        "-c:a", "libmp3lame", "-b:a", EXPORT_BITRATE,
+        "-filter_complex",
+        f"{streams}concat=n={len(inputs)}:v=0:a=1[out]",
+        "-map",
+        "[out]",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        EXPORT_BITRATE,
         str(output),
     ]
     subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

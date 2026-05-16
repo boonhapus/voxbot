@@ -15,11 +15,11 @@ class RuntimeConfig(pydantic.BaseModel):
     def commands_sha(self) -> pathlib.Path:
         """
         Stores the calculated the command tree hash.
-        
+
         Used to determine if we need to sync Bot.tree (slash commands) to the server.
         """
         return self.directory / "commands.sha"
-    
+
     def extend(self, *parts: str) -> pathlib.Path:
         """Get or create a subdirectory under the runtime directory."""
         path = self.directory.joinpath(*parts)

@@ -10,6 +10,7 @@ _LOGGER = structlog.get_logger(__name__)
 
 class HealthReport(pydantic.BaseModel):
     """Coerce values from Redis and handle formatting."""
+
     ready: bool
     heartbeat: int
     heartbeat_unix: int
@@ -38,7 +39,7 @@ class HealthReport(pydantic.BaseModel):
         try:
             k = list(mapping.values())
             v = await utils.RedisClient.mget(*k)
-            return cls.model_validate(dict(zip(mapping.keys(), v)))
+            return cls.model_validate(dict(zip(mapping.keys(), v, strict=True)))
 
         except Exception as exc:
             _LOGGER.error("redis_health_read_failed", error=str(exc))
@@ -53,7 +54,7 @@ class HealthReport(pydantic.BaseModel):
         return self.worker_release_sha[:12] if len(self.worker_release_sha) > 12 else self.worker_release_sha
 
     def format_age(self, timestamp: int) -> str:
-        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        now = int(datetime.datetime.now(datetime.UTC).timestamp())
         return f"{max(0, now - timestamp)}s"
 
     def __str__(self) -> str:

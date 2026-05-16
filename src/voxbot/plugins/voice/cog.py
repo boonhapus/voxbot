@@ -1,11 +1,11 @@
 """Voice plugin main Cog."""
 
+from typing import cast
 import asyncio
 import base64
 import pathlib
 import re
 import time
-from typing import cast
 
 from discord import app_commands
 from discord.ext import commands, songbird
@@ -13,10 +13,9 @@ import discord
 import structlog
 
 from voxbot import dota_wiki
+from voxbot.bot import VoxBot
 from voxbot.errors import MistralError, TTSError
 from voxbot.services.tts import TTSProcessor
-
-from voxbot.bot import VoxBot
 
 from . import ai, state
 from .errors import VoiceCommandError
@@ -66,7 +65,9 @@ async def _audio_from_hero(hero: str) -> tuple[str, bytes, str, str]:
     except (OSError, ValueError) as exc:
         raise VoiceCommandError(
             "⚠️ Failed to scrape Dota wiki. Check logs.",
-            log_event="wiki_scrape_failed", error=str(exc), hero=hero,
+            log_event="wiki_scrape_failed",
+            error=str(exc),
+            hero=hero,
         ) from exc
 
     voice_name = re.sub(r"[^A-Za-z0-9]+", "_", canonical).strip("_").title()
@@ -88,7 +89,8 @@ async def _audio_from_attachment(audio: discord.Attachment) -> tuple[str, bytes,
     except discord.HTTPException as exc:
         raise VoiceCommandError(
             "⚠️ Failed to download audio file.",
-            log_event="voice_download_failed", error=str(exc),
+            log_event="voice_download_failed",
+            error=str(exc),
         ) from exc
 
     return voice_name, audio_bytes, audio.filename
@@ -134,10 +136,11 @@ async def _play_in_voice(
             await vc.move_to(channel)  # pyrefly: ignore[missing-attribute]
 
         vc.play(discord.FFmpegPCMAudio(tmp_path), after=_after_play)  # pyrefly: ignore[missing-attribute]
-    except (discord.DiscordException, asyncio.TimeoutError, OSError) as exc:
+    except (TimeoutError, discord.DiscordException, OSError) as exc:
         raise VoiceCommandError(
             "⚠️ Failed to connect or play audio.",
-            log_event="voice_connect_failed", error=str(exc),
+            log_event="voice_connect_failed",
+            error=str(exc),
         ) from exc
 
 
@@ -145,7 +148,8 @@ async def _play_in_voice(
 
 
 async def _connect_songbird(
-    bot: commands.Bot, channel: discord.VoiceChannel,
+    bot: commands.Bot,
+    channel: discord.VoiceChannel,
 ) -> songbird.SongbirdClient:
     """Connect or upgrade the voice client to a SongbirdClient with decoding enabled."""
     config = songbird.ConfigBuilder().decode_mode(songbird.PyDecodeMode.Decode).build()  # pyrefly: ignore[missing-attribute]
@@ -164,10 +168,11 @@ async def _connect_songbird(
             await vc.move_to(channel)
 
         return vc
-    except (discord.DiscordException, asyncio.TimeoutError, OSError) as exc:
+    except (TimeoutError, discord.DiscordException, OSError) as exc:
         raise VoiceCommandError(
             "⚠️ Failed to connect.",
-            log_event="voice_connect_failed", error=str(exc),
+            log_event="voice_connect_failed",
+            error=str(exc),
         ) from exc
 
 
@@ -182,9 +187,7 @@ def _render_listen(elapsed: int, receiver: SpikeReceiver) -> str:
     for uid, total_bytes in receiver.bytes_per_user.items():
         speaker = f"<@{uid}>" if isinstance(uid, int) else uid
         is_speaking = any(
-            ssrc in receiver.active_ssrcs
-            for ssrc, mapped_uid in receiver.ssrc_to_user.items()
-            if mapped_uid == uid
+            ssrc in receiver.active_ssrcs for ssrc, mapped_uid in receiver.ssrc_to_user.items() if mapped_uid == uid
         )
         marker = "🎙️" if is_speaking else "🔇"
         lines.append(f"{marker} {speaker}: **{total_bytes / 1024:.1f} KB** heard")
@@ -210,7 +213,9 @@ class VoiceCog(commands.GroupCog, name="voice"):
     # ── AUTOCOMPLETE ──────────────────────────────────────────────────────────────────
 
     async def voice_autocomplete(
-        self, interaction: discord.Interaction, current: str,
+        self,
+        interaction: discord.Interaction,
+        current: str,
     ) -> list[app_commands.Choice[str]]:
         """Autocomplete voice names from the trained voice registry."""
         voices = state.list_voices(state.mistral_service.voices.custom_voices)
@@ -256,7 +261,9 @@ class VoiceCog(commands.GroupCog, name="voice"):
 
             try:
                 await state.mistral_service.train_voice(
-                    voice_name, base64.b64encode(audio_bytes).decode(), sample_filename,
+                    voice_name,
+                    base64.b64encode(audio_bytes).decode(),
+                    sample_filename,
                 )
             except MistralError as exc:
                 raise VoiceCommandError("⚠️ Voice training failed. Check logs.") from exc

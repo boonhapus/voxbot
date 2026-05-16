@@ -1,4 +1,5 @@
 """Custom exceptions for voxbot."""
+
 from discord.ext import commands
 
 
@@ -27,6 +28,7 @@ class RedisError(VoxBotError):
 
 
 # ── BOT ERRORS ────────────────────────────────────────────────────────────────────────
+
 
 class VoxCheckFailure(commands.CheckFailure):
     """When a user fails any of our custom checks."""

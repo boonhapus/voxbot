@@ -1,8 +1,8 @@
 """Mistral API client wrapper."""
 
+from typing import Annotated, Any
 import json
 import pathlib
-from typing import Annotated
 
 from mistralai.client import Mistral
 import structlog
@@ -29,7 +29,7 @@ class VoiceData:
         self.deleted_voices = deleted_voices or set()
         self.hero_origins = hero_origins or {}
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "voices": self.custom_voices,
             "deleted": list(self.deleted_voices),
@@ -37,7 +37,7 @@ class VoiceData:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "VoiceData":
+    def from_dict(cls, data: dict[str, Any]) -> VoiceData:
         return cls(
             custom_voices=data.get("voices", {}),
             deleted_voices=set(data.get("deleted", [])),
@@ -90,7 +90,8 @@ class MistralService:
             _LOGGER.error("voices_sync_failed", error=str(exc))
             raise MistralError(f"failed to sync voices: {exc}") from exc
 
-        added = {}
+        added: dict[str, str] = {}
+
         for voice in response.items:
             if voice.name in self.voices.deleted_voices:
                 continue
@@ -103,9 +104,7 @@ class MistralService:
             _LOGGER.info("voices_synced", added=list(added.keys()))
         return added
 
-    async def train_voice(
-        self, name: str, audio_b64: str, sample_filename: str
-    ) -> VoiceID:
+    async def train_voice(self, name: str, audio_b64: str, sample_filename: str) -> VoiceID:
         """Train a new custom voice on the Mistral API and persist it locally."""
         try:
             voice = await self.client.audio.voices.create_async(

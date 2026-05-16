@@ -50,8 +50,8 @@ cli = cyclopts.App(
 @cli.command
 async def bot() -> int:
     """Run the Discord bot."""
-    from voxbot.settings import settings
     from voxbot.bot import VoxBot
+    from voxbot.settings import settings
 
     setup_logging()
 

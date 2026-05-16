@@ -79,7 +79,7 @@ class ThreadAction(BotAIAction):
     async def do(self, message: discord.Message) -> None:
         if not self.content:
             return
-        
+
         if message.channel.guild is None:
             await TextAction(content=self.content).do(message)
             return
@@ -96,6 +96,7 @@ class ThreadAction(BotAIAction):
 
         for content in self.content:
             await thread.send(content)
+
 
 type _BotAIAction = SilentAction | TextAction | ReactAction | ThreadAction
 type BotAIActionT = Annotated[_BotAIAction, pydantic.Field(discriminator="kind")]

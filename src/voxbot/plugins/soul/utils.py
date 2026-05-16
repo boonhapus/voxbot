@@ -2,12 +2,11 @@ from typing import Any
 import functools as ft
 import pathlib
 
+from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
+import discord
 import jinja2
 import structlog
 import yaml
-
-from pydantic_ai.messages import ModelMessage, ModelRequest, UserPromptPart
-import discord
 
 _LOGGER = structlog.get_logger(__name__)
 _PROMPT_DIR = pathlib.Path(__file__).parent.joinpath("prompts")

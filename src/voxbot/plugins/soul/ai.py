@@ -1,17 +1,17 @@
 import dataclasses
 
-import structlog
 from jinja2 import TemplateNotFound
 from pydantic_ai import Agent, ModelSettings, RunContext
 import discord
 import pydantic
+import structlog
 
 from voxbot.settings import settings
 
+from . import utils
 from .actions import BotAIActionT
 from .errors import NoMemoryFound
 from .memory import Memories, MemoryCategory
-from . import utils
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -137,7 +137,7 @@ async def remember_person_fact(
 
     if not cleaned_fact:
         return "No memory stored because the fact was empty."
-    
+
     if not ctx.deps.message:
         return "No memory stored because we're missing the Discord message."
 
@@ -160,7 +160,7 @@ async def forget_person_fact(
 
     if not cleaned_fact and category is None:
         return "No memory forgotten because neither a fact nor category was provided."
-    
+
     if not ctx.deps.message:
         return "No memory forgotten because we're missing the Discord message."
 
@@ -172,4 +172,3 @@ async def forget_person_fact(
         person_name = memory.get("person") or str(person or ctx.deps.message.author.display_name)
         forgotten_fact = memory.get("fact", cleaned_fact)
         return f"Forget about {forgotten_fact} for {person_name}"
-

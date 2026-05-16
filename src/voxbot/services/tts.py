@@ -20,10 +20,10 @@ class TTSProcessor:
         """Decode base64 audio into a playable FFmpegPCMAudio source backed by a temporary file."""
         try:
             audio_bytes = base64.b64decode(audio_data_b64)
-            tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-            tmp.write(audio_bytes)
-            tmp.close()
-            tmp_path = tmp.name
+
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                tmp_path = f.name
+                f.write(audio_bytes)
 
             source = discord.FFmpegPCMAudio(tmp_path)
             return source, tmp_path

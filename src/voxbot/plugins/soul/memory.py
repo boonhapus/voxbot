@@ -4,8 +4,8 @@ import discord
 
 from voxbot.store import runtime
 
-from .errors import NoMemoryFound
 from . import storage
+from .errors import NoMemoryFound
 
 MemoryCategory = Literal[
     "birthday",
@@ -21,7 +21,7 @@ MemoryCategory = Literal[
 
 class MemoryService:
     """
-    
+
     Storage types:
       HOT  - :memory: , Redis
       COLD - file.json , sqlite.db
@@ -36,13 +36,9 @@ class MemoryService:
         return str(person.id)
 
     @staticmethod
-    def _resolve_member(
-        message: discord.Message,
-        *,
-        person_ident: str | int | None = None,
-    ) -> discord.Member | discord.User:
+    def _resolve_member(message: discord.Message, *, person_ident: str | int | None = None) -> discord.Member:
         if person_ident is None:
-            return cast(discord.Member | discord.User, message.author)
+            return cast(discord.Member, message.author)
 
         person_ident = str(person_ident).casefold()
 
@@ -50,9 +46,9 @@ class MemoryService:
             names = (candidate.name, candidate.global_name, candidate.display_name, candidate.id)
 
             if person_ident in map(str.casefold, map(str, names)):
-                return cast(discord.Member | discord.User, candidate)
+                return cast(discord.Member, candidate)
 
-        return cast(discord.Member | discord.User, message.author)
+        return cast(discord.Member, message.author)
 
     # ── PUBLIC INTERFACE ──────────────────────────────────────────────────────
 
@@ -85,20 +81,22 @@ class MemoryService:
     ) -> dict[str, Any]:
         member = self._resolve_member(message, person_ident=person)
 
-        record = storage.Record.model_validate({
-            "partition_key": self._partition_key(member),
-            "unique_key": "fact",
-            "data": {
-                "category": category,
-                "person": member.name,
-                "person_id": member.id,
-                "fact": fact,
-                "confidence": "explicit",
-                "source": "discord",
-                "message_id": message.id if message else None,
-                "channel_id": message.channel.id if message else None,
-            },
-        })
+        record = storage.Record.model_validate(
+            {
+                "partition_key": self._partition_key(member),
+                "unique_key": "fact",
+                "data": {
+                    "category": category,
+                    "person": member.name,
+                    "person_id": member.id,
+                    "fact": fact,
+                    "confidence": "explicit",
+                    "source": "discord",
+                    "message_id": message.id if message else None,
+                    "channel_id": message.channel.id if message else None,
+                },
+            }
+        )
 
         return await self.storage.upsert(record)
 

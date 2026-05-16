@@ -8,8 +8,8 @@ from discord.ext import commands
 import redis
 import structlog
 
-from voxbot.settings import settings
 from voxbot import utils
+from voxbot.settings import settings
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -20,7 +20,7 @@ class RedisHealthRuntime:
     def __init__(self, key_prefix: str = "voxbot:health", *, heartbeat_seconds: int = 10) -> None:
         self.key_prefix = key_prefix.rstrip(":")
         self._heartbeat_seconds = heartbeat_seconds
-        self._heartbeat_task: asyncio.Task | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     def key(self, name: str) -> str:
         """Create the Redis key."""
@@ -28,7 +28,7 @@ class RedisHealthRuntime:
 
     def _base_values(self, *, bot: commands.Bot | None = None) -> dict[str, str]:
         """Fetch the core objects for each message."""
-        now = dt.datetime.now(tz=dt.timezone.utc)
+        now = dt.datetime.now(tz=dt.UTC)
 
         values: dict[str, str] = {
             self.key("heartbeat"): now.isoformat(),
@@ -65,13 +65,13 @@ class RedisHealthRuntime:
         if (task := self._heartbeat_task) is not None:
             self._heartbeat_task = None
             task.cancel()
-            
+
             with suppress(asyncio.CancelledError):
                 await task
 
         await self.mark_ready(False)
         await self.close()
-    
+
     async def close(self) -> None:
         """Close the health runtime."""
         await utils.RedisClient.close()
@@ -90,10 +90,7 @@ class RedisHealthRuntime:
 
     async def mark_ready(self, ready: bool, *, bot: commands.Bot | None = None) -> None:
         """Inform the runtime that the bot is ready."""
-        values = {
-            **self._base_values(bot=bot),
-            self.key("ready"): "true" if ready else "false"
-        }
+        values = {**self._base_values(bot=bot), self.key("ready"): "true" if ready else "false"}
         await self._mset_with_warning(**values)
 
     async def record_restart_requested(self, reason: str) -> None:
@@ -110,9 +107,9 @@ class RedisHealthRuntime:
         error_data = {
             "msg": str(exc) or repr(exc),
             "type": type(exc).__name__,
-            "timestamp": str(int(dt.datetime.now(tz=dt.timezone.utc).timestamp())),
+            "timestamp": str(int(dt.datetime.now(tz=dt.UTC).timestamp())),
             "traceback": traceback.format_exc(limit=2),
-            "loc": "health_check_service"
+            "loc": "health_check_service",
         }
 
         try:

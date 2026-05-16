@@ -1,10 +1,10 @@
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 import discord
 import structlog
 
-from voxbot.bot import VoxBot
 from voxbot import checks
+from voxbot.bot import VoxBot
 
 from . import schema
 
@@ -37,7 +37,7 @@ class AdminCog(commands.GroupCog, name="admin"):
     @app_commands.command(name="restart", description="Restart the bot process")
     @checks.is_bot_admin()
     @app_commands.describe(reason="Optional reason to record in health state")
-    async def admin_restart(self, interaction: discord.Interaction, reason: str | None = None):
+    async def admin_restart(self, interaction: discord.Interaction, reason: str | None = None) -> None:
         """Ad-hoc restart the bot."""
         restart_reason = reason or f"Requested by {interaction.user.name} ({interaction.user.id})"
 

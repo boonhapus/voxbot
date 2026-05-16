@@ -1,10 +1,9 @@
 from typing import Self
 import os
 
-import pydantic_settings
-import pydantic
 import discord
-
+import pydantic
+import pydantic_settings
 import structlog
 
 _LOGGER = structlog.get_logger(__name__)
@@ -24,28 +23,23 @@ class Settings(pydantic_settings.BaseSettings):
     google_api_key: str = pydantic.Field(repr=False, json_schema_extra={"mirror_to_os.environ": True})
     """https://aistudio.google.com/projects?project=gen-lang-client-0686028511"""
 
-
     # ── AI SETTINGS ───────────────────────────────────────────────────────────────────
 
     voc_model: str = "voxtral-mini-tts-2603"
     txt_model: str = "google-gla:gemini-2.5-flash-lite"
-
 
     # ── METADATA ──────────────────────────────────────────────────────────────────────
 
     debug_guild: int
     bot_owner_id: int
 
-
     # ── METADATA ──────────────────────────────────────────────────────────────────────
 
     voxbot_release_sha: str | None = None
 
-
     # ── DURABLE STORE ─────────────────────────────────────────────────────────────────
 
     redis_url: str = pydantic.Field(default="redis://localhost:6379/1", repr=False)
-
 
     model_config = pydantic_settings.SettingsConfigDict(
         env_file=".env",
@@ -74,12 +68,12 @@ class Settings(pydantic_settings.BaseSettings):
                 os.environ[env_key] = str(val)
 
         return self
-    
+
     @property
     def required_intents(self) -> discord.Intents:
         """
         The bot permissions in order to run.
-        
+
         Further reading:
           https://discord.com/developers/applications/1487888280061083708/bot
           https://support-dev.discord.com/hc/en-us/articles/6207308062871-What-are-Privileged-Intents
