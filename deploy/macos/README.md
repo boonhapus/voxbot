@@ -139,13 +139,14 @@ SOUL_CHANNEL_IDS=
 # ── Agent Memory Server (compose.yaml) ──────────────────────────────────
 # Used only by the agent-memory-server container, not by voxbot itself.
 # Leave OPENAI_API_KEY empty if you only use Gemini.
+# `text-embedding-004` was retired on January 14, 2026.
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 GENERATION_MODEL=gemini-2.5-flash
 FAST_MODEL=gemini-2.5-flash-lite
 SLOW_MODEL=gemini-2.5-pro
-EMBEDDING_MODEL=text-embedding-004
-REDISVL_VECTOR_DIMENSIONS=768
+EMBEDDING_MODEL=gemini/gemini-embedding-2
+REDISVL_VECTOR_DIMENSIONS=3072
 OLLAMA_API_BASE=
 EOF
 sudo chmod 600 /Users/voxbot/secrets/voxbot.env
@@ -167,6 +168,10 @@ the URL; the container reads the password). Example:
 sudo -u voxbot grep -E '^(DISCORD_TOKEN|BOT_OWNER_ID|DEBUG_GUILD|MISTRAL_API_KEY|GOOGLE_API_KEY|REDIS_PASSWORD|REDIS_URL)=$' /Users/voxbot/secrets/voxbot.env
 # expected: (no output)
 ```
+
+If your deployed AMS/LiteLLM build does not support `gemini-embedding-2`, use:
+`EMBEDDING_MODEL=gemini/gemini-embedding-001` with the same
+`REDISVL_VECTOR_DIMENSIONS=3072`.
 
 ---
 

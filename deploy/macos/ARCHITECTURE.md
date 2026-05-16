@@ -65,6 +65,25 @@ current shell before `sudo` switches users, which is a common source of
 
 Four launchd jobs, two Python processes (bot + worker), three containers.
 
+## Agent Memory embedding baseline
+
+As of May 2026, Gemini API embedding requests to `text-embedding-004` fail
+(`404 NOT_FOUND`) because that model was retired on January 14, 2026.
+
+Deployment baseline in `/Users/voxbot/secrets/voxbot.env`:
+
+- `EMBEDDING_MODEL=gemini/gemini-embedding-2`
+- `REDISVL_VECTOR_DIMENSIONS=3072`
+
+Fallback for older LiteLLM builds:
+
+- `EMBEDDING_MODEL=gemini/gemini-embedding-001`
+- `REDISVL_VECTOR_DIMENSIONS=3072`
+
+If you change embedding model or vector dimensions, you must recreate Redis
+state (`docker compose ... down -v` then `up -d`) so the vector index and
+stored embeddings are consistent.
+
 ## Why launchd, not Docker, for the bot?
 
 - **Audio**: the bot uses `discord-ext-songbird` (Rust) for low-latency voice.
