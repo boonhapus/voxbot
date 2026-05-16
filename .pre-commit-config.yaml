@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: make-quality
+        name: make quality
+        entry: uv run make.py quality
+        language: system
+        files: ^
+        pass_filenames: false
+        stages: [pre-commit]
