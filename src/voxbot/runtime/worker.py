@@ -4,10 +4,10 @@ import signal
 import docket
 import structlog
 
+from voxbot import __project__
 from voxbot.runtime.docket import DurableTasks
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
-from voxbot import __project__
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -15,7 +15,6 @@ _LOGGER = structlog.get_logger(__name__)
 async def run_worker() -> int:
     """Run the external Docket worker process."""
     stop_event = asyncio.Event()
-
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
 
@@ -26,7 +25,6 @@ async def run_worker() -> int:
             loop.add_signal_handler(sig_num, stop_event.set)
         except (NotImplementedError, RuntimeError):
             continue
-
 
     # ── LOOP FOREVER ──────────────────────────────────────────────────────────────────
 

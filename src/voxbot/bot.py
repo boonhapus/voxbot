@@ -1,17 +1,19 @@
+from typing import Any
 import asyncio
 import io
 import signal
 import sys
 
 from discord.ext import commands
+from discord.ext.commands._types import BotT
 import discord
 import structlog
 
+from voxbot import __project__, errors, utils
 from voxbot.runtime.docket import BotDocketRuntime
 from voxbot.runtime.health import RedisHealthRuntime
 from voxbot.settings import settings
 from voxbot.store import runtime
-from voxbot import __project__, errors, utils
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -19,7 +21,7 @@ _LOGGER = structlog.get_logger(__name__)
 class VoxBot(commands.Bot):
     """
     Vox 🦜, the bot.
-    
+
     BOT LIFECYCLE
       .__init__
       .setup_hook
@@ -37,17 +39,17 @@ class VoxBot(commands.Bot):
         )
 
         # Internal background tasks. All external background tasks will be added to DocketRuntime.
-        self._running_tasks: set[asyncio.Task] = set()
+        self._running_tasks: set[asyncio.Task[Any]] = set()
 
         self.exit_code = 0
         self.health_runtime = RedisHealthRuntime()
         self.docket_runtime = BotDocketRuntime(self)
-    
+
     @property
     def me(self) -> discord.User:
         """
         The Bot User.
-        
+
         If you need to edit the Bot's profile, user `VoxBot.user` instead.
         """
         assert self.user is not None, "Attempted to fetch a User while not connected to the Discord Gateway."
@@ -85,10 +87,10 @@ class VoxBot(commands.Bot):
                 continue
 
             await self.load_extension(name=f"voxbot.plugins.{subdir.name}")
-    
+
     async def _determine_if_tree_needs_sync(self) -> None:
         """Sync the CommandTree if it's necessary."""
-        # DEV NOTE: 
+        # DEV NOTE:
         #   Global syncs are rate-limited (2/hr), so skip them when the
         #   command tree is unchanged since the last successful sync.
         #
@@ -101,7 +103,7 @@ class VoxBot(commands.Bot):
         if this_hash == last_hash:
             _LOGGER.info("skipped_global_sync_unchanged", hash=this_hash[:12])
             return
-        
+
         if settings.debug_guild:
             guild = discord.Object(id=settings.debug_guild)
             self.tree.copy_global_to(guild=guild)
@@ -112,7 +114,6 @@ class VoxBot(commands.Bot):
         runtime.commands_sha.write_text(this_hash, encoding="utf-8")
 
         _LOGGER.info("synced_commands", hash=this_hash[:12], guild=settings.debug_guild or "globally")
-    
 
     # ── LIFECYCLE METHODS ─────────────────────────────────────────────────────────────
 
@@ -137,17 +138,17 @@ class VoxBot(commands.Bot):
     async def on_ready(self) -> None:
         """
         Called when the client is done preparing the data received from Discord.
-        
+
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_ready
         """
         _LOGGER.info("bot_online", version=__project__.__version__)
         await self.health_runtime.mark_ready(True, bot=self)
 
-    async def on_error(self, event_method: str, *args, **kwargs) -> None:
+    async def on_error(self, event_method: str, *args: Any, **kwargs: Any) -> None:
         """
         Handle errors that occur during event processing or command execution.
-        
+
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_error
         """
@@ -172,10 +173,10 @@ class VoxBot(commands.Bot):
 
         await super().on_error(event_method, *args, **kwargs)
 
-    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
+    async def on_command_error(self, ctx: commands.Context[BotT], error: commands.CommandError) -> None:
         """
         Handle errors that occur during command execution.
-        
+
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_command_error
         """
@@ -184,13 +185,14 @@ class VoxBot(commands.Bot):
 
         _LOGGER.error(
             "bot.command_error",
-            exc_type=exc_type, exc=str(exc), command=ctx.command.name if ctx.command else "unknown",
+            exc_type=exc_type,
+            exc=str(exc),
+            command=ctx.command.name if ctx.command else "unknown",
         )
 
         assert exc_type is not None, "Not handling an active Exception."
         assert exc is not None, "Not handling an active Exception."
         assert tb is not None, "Not handling an active Exception."
-
 
         # Record to health runtime
         await self.health_runtime.record_error(exc=error)
