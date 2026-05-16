@@ -27,8 +27,9 @@ Run development tasks.
 ** generated on 2026/05/15
 """
 
-from typing import Annotated, NamedTuple
 import subprocess as sp
+import sys
+from typing import Annotated, NamedTuple
 
 from cyclopts.help import ColumnSpec, DefaultFormatter
 import cyclopts
@@ -138,7 +139,12 @@ type _CI = Annotated[
 
 def _runner(*tasks: str, ci: _CI = False) -> ExitCode:
     """Execute the named tasks sequentially, returning the first non-zero exit code or 0 on success."""
-    DIV = "─"
+    try:
+        "─".encode(sys.stdout.encoding or "ascii")
+    except (UnicodeEncodeError, LookupError):
+        DIV = "-"
+    else:
+        DIV = "─"
 
     for task in tasks:
         command = COMMANDS[task]
