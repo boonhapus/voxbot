@@ -54,7 +54,6 @@ class MdExceptionFormatter:
         """The exception itself."""
         return self.exc_info[1]
 
-    @property
     @ft.cached_property
     def tb(self) -> traceback.StackSummary:
         """The extracted summary traceback on the exception."""
