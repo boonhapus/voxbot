@@ -9,38 +9,45 @@ A memory-capable Text-to-Speech (TTS) Discord bot built with **discord.py**, **S
 ## Features
 
 - **High-Quality TTS**: Multi-voice support via Mistral AI.
-- **Hero Origins**: Mimic Dota 2 hero personalities using scraped voice lines.
-- **Long-Term Memory**: Remembers user preferences and past interactions using Redis Agent Memory.
-- **Self-Healing**: Native macOS deployment with automatic recovery and git-driven updates.
-- **Hybrid Worker**: Offloads heavy tasks to background workers while keeping audio low-latency.
+- **Hero Origins**: Train custom voices by scraping Dota 2 hero voice lines.
+- **Conversational Soul**: Pydantic-AI agent responds to whitelisted channels with personality and tool use.
+- **Long-Term Memory**: Per-user facts persisted via a crash-safe file store, with an optional Redis Agent Memory Server backend.
+- **Hybrid Worker**: Heavy and periodic work runs in a separate Docket worker process; the bot stays responsive for low-latency audio.
+- **Git-Driven Deployment**: macOS launchd deployer polls the repo and rebuilds on new commits, with manual rollback via prior release symlinks.
 
 ## Commands
 
 ### Voice (`/voice`)
-- `/voice speak`: Speak a message or generate an AI line from a prompt.
-- `/voice train`: Train a custom voice from an audio file or Dota hero name.
+- `/voice speak`: Speak a message in your voice channel using a selected voice.
+- `/voice train`: Train a custom voice from an audio sample or Dota 2 hero name.
 - `/voice delete`: Remove a custom voice.
-- `/voice listen`: A 10-second "spike" to visualize incoming audio data.
+- `/voice listen`: 10-second audio "spike" that visualizes incoming voice traffic.
 
-### Soul (`/soul`)
-- `/soul chat`: Interact with the bot's personality.
-- `/soul memory`: Manage what the bot remembers about you.
+### Health (`/health`)
+- `/health ping`: Check bot latency.
 
-### Admin (Owner-only)
-- `/admin health`: Check deployment status, latency, and service heartbeats.
+### Admin (`/admin`, owner-only)
+- `/admin health`: Show deployment health, heartbeats, and last recorded error.
 - `/admin restart`: Gracefully restart the bot process.
-- `/admin deploy`: View current release SHA and deployment state.
 
-## Cogs & Architecture
+### Soul
 
-- **VoiceCog**: Manages voice channel connections and Songbird audio playback.
-- **SoulCog**: Orchestrates the AI personality and memory retrieval.
-- **AdminCog**: Provides operational tools for the bot owner.
-- **Health Runtime**: Reports real-time status to Redis for process supervision.
+Soul has no slash commands. It reacts to messages in whitelisted channels (`SOUL_CHANNEL_IDS`) and to DMs from the bot owner, dispatching reply/react/thread actions and storing facts it learns about people.
 
-## Maintenance
+## Architecture
 
-For server setup and deployment details, see the [MacOS Deployment Guide](deploy/macos/README.md).
+- **VoiceCog** (`plugins/voice`): Voice channel connections, TTS generation, and Songbird playback.
+- **SoulCog** (`plugins/soul`): Pydantic-AI agent, memory tools, and message-driven personality.
+- **AdminCog** (`plugins/admin`): Owner-only operational commands.
+- **HealthCog** (`plugins/health`): Public latency check.
+- **Runtimes** (`runtime/`):
+  - `RedisHealthRuntime` — heartbeat, ready state, and error stream written to Redis.
+  - `BotDocketRuntime` / worker — durable task scheduler (`docket`) for background jobs.
+
+## Deployment
+
+- [macOS deployment runbook](deploy/macos/README.md) — step-by-step bootstrap of a new server.
+- [macOS deployment architecture](deploy/macos/ARCHITECTURE.md) — why the system is built this way (process model, rollback strategy, health surface).
 
 ## License
 

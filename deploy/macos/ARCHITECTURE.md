@@ -99,7 +99,8 @@ upstream-maintained images and we don't need host I/O for them.
 │   ├── <sha-2>/
 │   └── ...                ← `deploy.sh` keeps the 5 newest
 ├── current  → releases/<latest-good-sha>   (symlink)
-├── deployed_sha           ← SHA `current` points at
+├── release_sha            ← SHA `current` points at *right now*
+├── deployed_sha           ← last SHA that passed the post-deploy health gate
 ├── deploy.lock/           ← mkdir-based lock to prevent concurrent runs
 ├── deploy.sh
 ├── run-bot.sh
@@ -120,30 +121,35 @@ if releases/SHA doesn't exist:
     clone, checkout, uv sync, ruff check, pytest
     on any failure: rm -rf releases/SHA, exit 1
 
-remember OLD_CURRENT = readlink current
+remember OLD_SHA = deployed_sha, OLD_CURRENT = readlink current
 ln -sfn releases/SHA current
-write SHA → deployed_sha
+write SHA → release_sha          # runtime scripts read this on next launch
 
 kill bot + worker process groups (SIGKILL; SIGTERM hangs on docket shutdown)
 sleep 5
 
 for 30 * 2s:
     if redis(voxbot:health:release_sha) == SHA AND redis(voxbot:health:ready) == "true":
+        write SHA → deployed_sha    # commit: this SHA is known-good
         prune old releases (keep newest 5)
         exit 0
 
 # health check failed → roll back
 rm -rf releases/SHA
 ln -sfn OLD_CURRENT current
+write OLD_SHA → release_sha
 write OLD_SHA → deployed_sha
 kill bot + worker process groups
 exit 1
 ```
 
 Key invariants:
-- `deployed_sha` always matches what `current` points at *after* a successful
-  health check, or what it pointed at *before* a failed deploy. It is never
-  left pointing at a bad release.
+- `release_sha` tracks what `current` points at *right now* — flipped at the
+  same moment as the symlink, so `run-bot.sh` and `run-worker.sh` always read
+  the SHA that matches the venv they're about to exec.
+- `deployed_sha` only advances *after* the new release passes the post-deploy
+  health gate. On rollback, both files revert to the previous SHA together, so
+  `deployed_sha == release_sha` is the steady-state invariant.
 - Failed releases are deleted, so the next poll re-clones and re-tests rather
   than re-rolling a stale failed artifact.
 - The `mkdir deploy.lock` lock is atomic; concurrent deployer runs (e.g. if a
@@ -175,7 +181,9 @@ deterministic deploy times. Discord handles the abrupt disconnect fine
 | `voxbot:health:last_error`         | Most recent error summary        |
 | `voxbot:health:restart_requested`  | Reason if `request_restart` ran  |
 | `voxbot:health:restart_count`      | Lifetime restart counter         |
-| `voxbot:worker:health:*`           | Same keys, prefixed for worker   |
+
+The worker process writes the same key set under the `voxbot:worker:health:`
+prefix, so both processes are observable independently.
 
 The deployer reads `release_sha` + `ready` to decide whether a deploy
 succeeded. The `/admin health` Discord command reads the same keys.

@@ -127,19 +127,19 @@ sudo -u voxbot tee /Users/voxbot/secrets/voxbot.env >/dev/null <<'EOF'
 # ── Voxbot ──────────────────────────────────────────────────────────────
 DISCORD_TOKEN=
 BOT_OWNER_ID=
+DEBUG_GUILD=
 MISTRAL_API_KEY=
 GOOGLE_API_KEY=
-GEMINI_API_KEY=
 REDIS_PASSWORD=
 REDIS_URL=redis://:CHANGEME@localhost:6379/1
 
 # Optional bot settings
-SOUL_HOME_GUILD_ID=
 SOUL_CHANNEL_IDS=
-DEBUG_GUILD=
 
 # ── Agent Memory Server (compose.yaml) ──────────────────────────────────
+# Used only by the agent-memory-server container, not by voxbot itself.
 # Leave OPENAI_API_KEY empty if you only use Gemini.
+GEMINI_API_KEY=
 OPENAI_API_KEY=
 GENERATION_MODEL=gemini-2.5-flash
 FAST_MODEL=gemini-2.5-flash-lite
@@ -164,7 +164,7 @@ the URL; the container reads the password). Example:
 
 ```bash
 # verify: no empty required values
-sudo -u voxbot grep -E '^(DISCORD_TOKEN|MISTRAL_API_KEY|GOOGLE_API_KEY|REDIS_PASSWORD|REDIS_URL)=$' /Users/voxbot/secrets/voxbot.env
+sudo -u voxbot grep -E '^(DISCORD_TOKEN|BOT_OWNER_ID|DEBUG_GUILD|MISTRAL_API_KEY|GOOGLE_API_KEY|REDIS_PASSWORD|REDIS_URL)=$' /Users/voxbot/secrets/voxbot.env
 # expected: (no output)
 ```
 
@@ -251,7 +251,7 @@ sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a;
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.voxbot.deployer.plist
 ```
 
-Watch it work (first run = clone + `uv sync` + `pytest`, ~2–5 min):
+Watch it work (first run = clone + `uv sync` + `ruff check` + `pytest`, ~2–5 min):
 
 ```bash
 tail -f /Users/voxbot/logs/deployer.out.log /Users/voxbot/logs/deployer.err.log
@@ -289,7 +289,9 @@ sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a;
 # expected: "true"
 
 sudo -u voxbot bash -c 'set -a; source /Users/voxbot/secrets/voxbot.env; set +a; redis-cli -a "$REDIS_PASSWORD" GET voxbot:health:release_sha'
-# expected: a git SHA matching /Users/voxbot/apps/voxbot/deployed_sha
+# expected: a git SHA matching /Users/voxbot/apps/voxbot/release_sha
+# (deployed_sha is only written after the deployer's own health gate passes —
+#  same value once a deploy succeeds.)
 ```
 
 In Discord, as a configured owner, run `/admin health`. You should see `Ready: true`
@@ -328,6 +330,7 @@ ls /Users/voxbot/logs/
 ```bash
 ls -1t /Users/voxbot/apps/voxbot/releases   # newest first
 sudo -u voxbot ln -sfn /Users/voxbot/apps/voxbot/releases/<old-sha> /Users/voxbot/apps/voxbot/current
+echo "<old-sha>" | sudo -u voxbot tee /Users/voxbot/apps/voxbot/release_sha
 echo "<old-sha>" | sudo -u voxbot tee /Users/voxbot/apps/voxbot/deployed_sha
 sudo launchctl kickstart -k system/com.voxbot.worker
 sudo launchctl kickstart -k system/com.voxbot.bot
