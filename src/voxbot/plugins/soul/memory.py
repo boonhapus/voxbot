@@ -49,12 +49,14 @@ class MemoryService:
             return "- No current author; this is a background identity check."
 
         query = message.content.strip()
+
         memories = await self.recall(
             message,
             person=message.author.id,
             query=query or None,
             limit=20,
         )
+
         if not memories:
             memories = await self.recall(message, person=message.author.id)
 

@@ -1,7 +1,6 @@
 import dataclasses
 import datetime as dt
 import io
-import sys
 import zoneinfo
 
 from jinja2 import TemplateNotFound
@@ -55,14 +54,10 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         _LOGGER.error("memory_summary_unavailable", error=str(exc))
         memory_summary = "- Memories unavailable right now."
 
-        exc_type, _exc, tb = sys.exc_info()
-        assert exc_type is not None
-        assert _exc is not None
-        assert tb is not None
-        mdc_exc = vox_utils.MdExceptionFormatter(exc_info=(exc_type, _exc, tb))
+        mdc_exc = vox_utils.MdExceptionFormatter(exc)
 
         await ctx.deps.bot.dad.send(
-            f"🚨 **{_exc}** — system prompt failed",
+            f"🚨 **{exc}** — memory summary failed",
             file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
         )
 
@@ -74,19 +69,16 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         )
     except (TemplateNotFound, ValueError) as exc:
         _LOGGER.warning("personality_prompt_fallback", error=str(exc))
+
         prompt = (
             "You are Voxbot - or 'Vox' for short - a Discord-native participant with a dry, curious, "
             "slightly mischievous personality. You are concise, socially aware, and comfortable staying quiet.\n"
         )
 
-        exc_type, _exc, tb = sys.exc_info()
-        assert exc_type is not None
-        assert _exc is not None
-        assert tb is not None
-        mdc_exc = vox_utils.MdExceptionFormatter(exc_info=(exc_type, _exc, tb))
+        mdc_exc = vox_utils.MdExceptionFormatter(exc)
 
         await ctx.deps.bot.dad.send(
-            f"🚨 **{_exc}** — system prompt failed",
+            f"🚨 **{exc}** — system prompt failed",
             file=discord.File(io.BytesIO(mdc_exc.format(locals=True).encode("utf-8")), filename="error_trace.md"),
         )
 
@@ -192,6 +184,46 @@ async def remember_person_fact(
     memory_id = memory.get("memory_id", "")
 
     return f"Remembered [{memory_id}] for {person_name}: {remembered_fact}"
+
+
+@soul_agent.tool
+async def recall_person_facts(
+    ctx: RunContext[DiscordDeps],
+    person: str | int | None = None,
+    query: str = "",
+    limit: int = 10,
+) -> str:
+    """Retrieve saved facts about a person for explicit memory recall requests.
+
+    Use this when a user asks what Voxbot remembers about them (or someone in
+    the message mentions). Pass ``query`` to narrow results with semantic search.
+    """
+    if not ctx.deps.message:
+        return "No memories recalled because we're missing the Discord message."
+
+    cleaned_query = " ".join(query.strip().split())
+    clamped_limit = max(1, min(limit, 20))
+    memories = await Memories.recall(
+        message=ctx.deps.message,
+        person=person,
+        query=cleaned_query or None,
+        limit=clamped_limit,
+    )
+
+    if not memories:
+        return "No memories found."
+
+    lines = [
+        f"[{memory.get('memory_id', '???????')}] {memory.get('fact', '')}".rstrip()
+        for memory in memories[:clamped_limit]
+        if str(memory.get("fact", "")).strip()
+    ]
+
+    if not lines:
+        return "No memories found."
+
+    person_name = memories[0].get("person") or str(person or ctx.deps.message.author.display_name)
+    return f"Memories for {person_name}:\n" + "\n".join(lines)
 
 
 @soul_agent.tool

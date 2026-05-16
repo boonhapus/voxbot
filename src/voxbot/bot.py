@@ -152,19 +152,17 @@ class VoxBot(commands.Bot):
         Further reading:
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_error
         """
-        exc_type, exc, tb = sys.exc_info()
+        _exc_type, exc, _tb = sys.exc_info()
 
-        _LOGGER.error("bot.on_error", exc_type=exc_type, exc=str(exc), event_method=event_method)
+        _LOGGER.error("bot.on_error", exc_type=_exc_type, exc=str(exc), event_method=event_method)
 
-        assert exc_type is not None, "Not handling an active Exception."
         assert exc is not None, "Not handling an active Exception."
-        assert tb is not None, "Not handling an active Exception."
 
         # Record to health runtime
         await self.health_runtime.record_error(exc=exc)
 
         # DM owner with a full traceback attachment.
-        mdc_exc = utils.MdExceptionFormatter(exc_info=(exc_type, exc, tb))
+        mdc_exc = utils.MdExceptionFormatter(exc)
 
         await self.dad.send(
             f"🚨 **{exc}** — {event_method}",
@@ -181,18 +179,13 @@ class VoxBot(commands.Bot):
           https://discordpy.readthedocs.io/en/stable/api.html#discord.on_command_error
         """
         cause_exc = getattr(error, "original", error)
-        exc_type, exc, tb = type(cause_exc), cause_exc, cause_exc.__traceback__
 
         _LOGGER.error(
             "bot.command_error",
-            exc_type=exc_type,
-            exc=str(exc),
+            exc_type=type(cause_exc),
+            exc=str(cause_exc),
             command=ctx.command.name if ctx.command else "unknown",
         )
-
-        assert exc_type is not None, "Not handling an active Exception."
-        assert exc is not None, "Not handling an active Exception."
-        assert tb is not None, "Not handling an active Exception."
 
         # Record to health runtime
         await self.health_runtime.record_error(exc=error)
@@ -202,7 +195,7 @@ class VoxBot(commands.Bot):
             await ctx.send(str(error), ephemeral=True)
 
         # DM owner with a full traceback attachment.
-        mdc_exc = utils.MdExceptionFormatter(exc_info=(exc_type, exc, tb))
+        mdc_exc = utils.MdExceptionFormatter(cause_exc)
         channel_mention = ctx.me if isinstance(ctx.channel, discord.abc.PrivateChannel) else ctx.channel.mention
 
         await self.dad.send(

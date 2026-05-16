@@ -38,26 +38,21 @@ def no_task_dangling(task: asyncio.Task[Any], *, struct: set[asyncio.Task[Any]])
 
 
 class MdExceptionFormatter:
-    """Convert sys.exc_info() into a formatted Markdown string."""
+    """Convert an Exception into a formatted Markdown string."""
 
-    def __init__(self, exc_info: tuple[type[BaseException], BaseException, TracebackType]) -> None:
-        self.exc_info = exc_info
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
         self.when = dt.datetime.now(tz=dt.UTC)
 
     @property
     def exc_type(self) -> type[BaseException]:
         """The exception class."""
-        return self.exc_info[0]
-
-    @property
-    def exc(self) -> BaseException:
-        """The exception itself."""
-        return self.exc_info[1]
+        return type(self.exc)
 
     @ft.cached_property
     def tb(self) -> traceback.StackSummary:
         """The extracted summary traceback on the exception."""
-        return traceback.StackSummary.extract(traceback.walk_tb(self.exc_info[2]))
+        return traceback.StackSummary.extract(traceback.walk_tb(self.exc.__traceback__))
 
     @property
     def metadata(self) -> dict[str, Any]:
@@ -181,7 +176,8 @@ class MdExceptionFormatter:
 
             return r
 
-        last_frame = unwrap_to_last_frame(self.exc_info[2])
+        assert self.exc.__traceback__ is not None, "Exception should have a valid Traceback."
+        last_frame = unwrap_to_last_frame(self.exc.__traceback__)
 
         rows = [
             (name, type(value).__name__, make_table_cell_repr(value, max_length=var_width))
