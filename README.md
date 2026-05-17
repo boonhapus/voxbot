@@ -1,7 +1,7 @@
 # Voxbot
 
 <p align="center">
-  <img src="assets/vox_avatar.png" width="200" alt="Voxbot Avatar">
+  <img src="docs/assets/vox_avatar.png" width="200" alt="Voxbot Avatar">
 </p>
 
 A memory-capable Text-to-Speech (TTS) Discord bot built with **discord.py**, **Songbird (Rust)**, and powered by **Mistral** and **Gemini**.
