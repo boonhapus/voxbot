@@ -62,11 +62,7 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         )
 
     try:
-        prompt = utils.load_prompt(
-            "personality.mdc",
-            current_context=current_context,
-            memory_summary=memory_summary,
-        )
+        prompt = utils.load_prompt("personality.mdc", current_context=current_context, memory_summary=memory_summary)
     except (TemplateNotFound, ValueError) as exc:
         _LOGGER.warning("personality_prompt_fallback", error=str(exc))
 
