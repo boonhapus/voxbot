@@ -1,9 +1,9 @@
-import datetime
+import datetime as dt
 
 import pydantic
 import structlog
 
-from voxbot import errors, utils
+from voxbot import utils
 
 _LOGGER = structlog.get_logger(__name__)
 
@@ -12,11 +12,11 @@ class HealthReport(pydantic.BaseModel):
     """Coerce values from Redis and handle formatting."""
 
     ready: bool
-    heartbeat: int
+    heartbeat: dt.datetime
     heartbeat_unix: int
     release_sha: str = "unknown"
     latency_ms: int
-    last_error: str
+    last_error: str | None
     worker_ready: bool
     worker_heartbeat_unix: int
     worker_release_sha: str
@@ -36,14 +36,9 @@ class HealthReport(pydantic.BaseModel):
             "worker_release_sha": "voxbot:worker:health:release_sha",
         }
 
-        try:
-            k = list(mapping.values())
-            v = await utils.RedisClient.mget(*k)
-            return cls.model_validate(dict(zip(mapping.keys(), v, strict=True)))
-
-        except Exception as exc:
-            _LOGGER.error("redis_health_read_failed", error=str(exc))
-            raise errors.RedisError("Redis health read failed") from exc
+        k = list(mapping.values())
+        v = await utils.RedisClient.mget(k)
+        return cls.model_validate(dict(zip(mapping.keys(), v, strict=True)))
 
     @property
     def short_sha(self) -> str:
@@ -54,7 +49,7 @@ class HealthReport(pydantic.BaseModel):
         return self.worker_release_sha[:12] if len(self.worker_release_sha) > 12 else self.worker_release_sha
 
     def format_age(self, timestamp: int) -> str:
-        now = int(datetime.datetime.now(datetime.UTC).timestamp())
+        now = int(dt.datetime.now(tz=dt.UTC).timestamp())
         return f"{max(0, now - timestamp)}s"
 
     def __str__(self) -> str:
