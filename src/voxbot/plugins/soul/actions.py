@@ -36,10 +36,11 @@ class BotAIAction(pydantic.BaseModel, abc.ABC):
         assert hasattr(self, "kind"), "Protocol member `kind` not defined."
 
         try:
-            _LOGGER.info("bot_ui_action_chosen", action=self.kind)
+            _LOGGER.info("bot_ai_action_chosen", action=self.kind)
             await self.do(bot=bot, message=message)
         except discord.HTTPException as exc:
-            _LOGGER.warning("bot_ui_action_failed", error=str(exc), message=message.id, action=self.kind)
+            _LOGGER.warning("bot_ai_action_failed", error=str(exc), message=message.id, action=self.kind)
+            await bot.on_error("on_message", message)
 
 
 # ── BOT ACTIONS ───────────────────────────────────────────────────────────────────────
@@ -56,7 +57,15 @@ class Silent(BotAIAction):
 
 
 class Respond(BotAIAction):
-    """Respond with one or more messages."""
+    """
+    Respond with one or more messages.
+
+    Use this when the user mentions you, asks a direct question, invites
+    your opinion, or shares something meaningful. Choose delivery='reply'
+    to reply directly to someone; use delivery='channel' for general
+    participation. You may include 1-3 short messages: a main thought,
+    a correction, or an afterthought.
+    """
 
     kind: Literal["respond"] = "respond"
     delivery: Literal["channel", "reply"] = "channel"
@@ -76,7 +85,7 @@ class Respond(BotAIAction):
                 n_words = len(content.split(" "))
 
                 # SIMULATE TYPING
-                await asyncio.sleep(n_words * TYPING_SPEED_WPM * 60)
+                await asyncio.sleep(n_words / TYPING_SPEED_WPM * 60)
 
                 if idx == 0 and self.delivery == "reply":
                     await message.reply(content, mention_author=False)
@@ -85,7 +94,14 @@ class Respond(BotAIAction):
 
 
 class React(BotAIAction):
-    """Add or remove an emoji reaction to the message."""
+    """
+    Add or remove an emoji reaction to the message.
+
+    Only use this when the message gives a clear emotional reason: funny,
+    surprising, cursed, kind, annoying, or impressive. Most normal messages
+    should get no reaction. You may include multiple react actions but use
+    one emoji per action. Do not use duplicate emoji.
+    """
 
     kind: Literal["react"] = "react"
     emoji: str
@@ -111,7 +127,12 @@ class React(BotAIAction):
 
 
 class RenameSelf(BotAIAction):
-    """Change your display name."""
+    """
+    Change your display name.
+
+    You may use this whenever a new home-guild display name feels right. You
+    choose the name; do not ask permission. Use at most once per agent run.
+    """
 
     kind: Literal["rename_self"] = "rename_self"
     name: str = pydantic.Field(max_length=32)
@@ -122,5 +143,17 @@ class RenameSelf(BotAIAction):
         await guild.me.edit(nick=self.name, reason=f"VoxBot renamed themself as a result of {message.id}")
 
 
-type _BotAIAction = Silent | Respond | React | RenameSelf
+type _BotAIAction = Respond | React | RenameSelf
 type BotAIActionT = Annotated[_BotAIAction, pydantic.Field(discriminator="kind")]
+
+
+def action_prompt_section() -> str:
+    lines: list[str] = []
+    for cls in BotAIAction.__subclasses__():
+        if cls is Silent:
+            continue
+        kind: str = cls.model_fields["kind"].default  # type: ignore[union-attr]
+        doc = cls.__doc__.strip() if cls.__doc__ else ""
+        doc = " ".join(doc.split())
+        lines.append(f"- ``kind='{kind}'`` — {doc}")
+    return "\n".join(lines)

@@ -14,7 +14,7 @@ from voxbot.bot import VoxBot
 from voxbot.settings import settings
 
 from . import utils
-from .actions import BotAIActionT
+from .actions import BotAIActionT, action_prompt_section
 from .errors import NoMemoryFound
 from .memory import Memories
 
@@ -62,13 +62,19 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         )
 
     try:
-        prompt = utils.load_prompt("personality.mdc", current_context=current_context, memory_summary=memory_summary)
+        prompt = utils.load_prompt(
+            "personality.mdc",
+            current_context=current_context,
+            memory_summary=memory_summary,
+            action_section=action_prompt_section(),
+        )
     except (TemplateNotFound, ValueError) as exc:
         _LOGGER.warning("personality_prompt_fallback", error=str(exc))
 
         prompt = (
             "You are Voxbot - or 'Vox' for short - a Discord-native participant with a dry, curious, "
-            "slightly mischievous personality. You are concise, socially aware, and comfortable staying quiet.\n"
+            "slightly mischievous personality. You are concise, socially aware, and comfortable staying quiet.\n\n"
+            f"{action_prompt_section()}\n"
         )
 
         mdc_exc = vox_utils.MdExceptionFormatter(exc)
@@ -79,39 +85,6 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
         )
 
     return prompt
-
-
-# @soul_agent.tool
-# async def change_own_display_name(
-#     ctx: RunContext[DiscordDeps],
-#     display_name: str,
-#     reason: str | None = None,
-# ) -> str:
-#     """
-#     Change your display name in your home guild.
-
-#     This changes the bot's server nickname, not the global account username.
-#     Choose any name that fits Voxbot's mood, as long as it is Discord-valid.
-#     Names must be non-empty, 32 characters or fewer, and contain no control
-#     characters or newlines.
-#     """
-#     # DEV NOTE:
-#     #   This is a code smell because we're relying on the fact that we
-#     #   only have 1 guild in scope.
-#     primary_guild = next(g for g in ctx.deps.bot.guilds if g.id == settings.debug_guild)
-
-#     # Discord restricts User.nick names to 32 characters.
-#     display_name = display_name[:32]
-
-#     # Discord restricts AuditLogEntry.reason to 512 characters.
-#     reason = "".join(["Voxbot self-renamed", ": " if reason is not None else ". ", reason or ""])[:512]
-
-#     try:
-#         await primary_guild.me.edit(nick=display_name, reason=reason)
-#         return f"Changed Voxbot's home-guild display name to {display_name}."
-
-#     except discord.HTTPException as exc:
-#         return f"Name not changed: Discord rejected the nickname update ({exc})."
 
 
 @soul_agent.tool

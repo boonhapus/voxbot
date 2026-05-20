@@ -23,8 +23,8 @@ async def soul_identity_check(
 
     p = (
         "Background identity check: decide whether your home-guild display name should "
-        "change. If it should, call change_own_display_name once. Return only a silent "
-        "action."
+        "change. If it should, call change_own_display_name once. Return an empty actions "
+        "list if no change is needed."
     )
 
     try:

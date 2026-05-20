@@ -58,27 +58,14 @@ class SoulCog(commands.GroupCog, name="soul"):
         if not (is_channel_whitelisted or is_private_whitelisted):
             return
 
-        try:
-            r = await ai.soul_agent.run(
-                message.content,
-                deps=ai.DiscordDeps(bot=self.bot, message=message),
-                output_type=ai.DiscordResponse,
-                message_history=self.conversations.get(message.channel.id, []),
-            )
+        r = await ai.soul_agent.run(
+            message.content,
+            deps=ai.DiscordDeps(bot=self.bot, message=message),
+            output_type=ai.DiscordResponse,
+            message_history=self.conversations.get(message.channel.id, []),
+        )
 
-            self.conversations[message.channel.id] = utils.trim_conversation(r.all_messages())
+        self.conversations[message.channel.id] = utils.trim_conversation(r.all_messages())
 
-            # DISPATCH ACTIONS
-            _ = await asyncio.gather(*[a.run(bot=self.bot, message=message) for a in r.output.actions])
-
-        except Exception as exc:
-            exc_type, tb = type(exc), exc.__traceback__
-
-            assert tb is not None, "Not handling an active Exception."
-
-            _LOGGER.error(
-                "chat_error", exc=exc_type, error=str(exc), user=message.author.id, channel=message.channel.id
-            )
-
-            await message.reply("My circuits are a bit fried right now. Try again?", mention_author=False)
-            await self.bot.on_error("on_message", message)
+        # DISPATCH ACTIONS
+        _ = await asyncio.gather(*[a.run(bot=self.bot, message=message) for a in r.output.actions])
