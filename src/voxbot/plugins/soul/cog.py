@@ -1,3 +1,5 @@
+import asyncio
+
 from discord.ext import commands
 from pydantic_ai.messages import ModelMessage
 import discord
@@ -57,27 +59,17 @@ class SoulCog(commands.GroupCog, name="soul"):
             return
 
         try:
-            async with message.channel.typing():
-                r = await ai.soul_agent.run(
-                    message.content,
-                    deps=ai.DiscordDeps(bot=self.bot, message=message),
-                    output_type=ai.DiscordResponse,
-                    message_history=self.conversations.get(message.channel.id, []),
-                )
+            r = await ai.soul_agent.run(
+                message.content,
+                deps=ai.DiscordDeps(bot=self.bot, message=message),
+                output_type=ai.DiscordResponse,
+                message_history=self.conversations.get(message.channel.id, []),
+            )
 
-                self.conversations[message.channel.id] = utils.trim_conversation(r.all_messages())
+            self.conversations[message.channel.id] = utils.trim_conversation(r.all_messages())
 
-                # DISPATCH ACTIONS
-                for action in r.output.actions:
-                    try:
-                        await action.do(message=message)
-                    except discord.HTTPException as exc:
-                        _LOGGER.warning(
-                            "soul_action_failed",
-                            error=str(exc),
-                            message=message.id,
-                            action=action.kind,
-                        )
+            # DISPATCH ACTIONS
+            _ = await asyncio.gather(*[a.run(bot=self.bot, message=message) for a in r.output.actions])
 
         except Exception as exc:
             exc_type, tb = type(exc), exc.__traceback__

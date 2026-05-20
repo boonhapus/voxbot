@@ -81,59 +81,37 @@ async def _persona(ctx: RunContext[DiscordDeps]) -> str:
     return prompt
 
 
-@soul_agent.tool
-async def react_to_message(ctx: RunContext[DiscordDeps], emoji: str) -> str:
-    """
-    React to the user's message with one emoji.
+# @soul_agent.tool
+# async def change_own_display_name(
+#     ctx: RunContext[DiscordDeps],
+#     display_name: str,
+#     reason: str | None = None,
+# ) -> str:
+#     """
+#     Change your display name in your home guild.
 
-    Prefer returning react actions in your final response. Use this tool only when
-    you need to react before returning your final actions.
+#     This changes the bot's server nickname, not the global account username.
+#     Choose any name that fits Voxbot's mood, as long as it is Discord-valid.
+#     Names must be non-empty, 32 characters or fewer, and contain no control
+#     characters or newlines.
+#     """
+#     # DEV NOTE:
+#     #   This is a code smell because we're relying on the fact that we
+#     #   only have 1 guild in scope.
+#     primary_guild = next(g for g in ctx.deps.bot.guilds if g.id == settings.debug_guild)
 
-    Use this rarely. Do not call this for normal conversation.
-    Only react when Voxbot has a clear emotional response.
-    Pick an emoji that matches Voxbot's personality and mood.
-    """
-    if ctx.deps.message is None:
-        return "No reaction added because there is no current Discord message."
+#     # Discord restricts User.nick names to 32 characters.
+#     display_name = display_name[:32]
 
-    try:
-        await ctx.deps.message.add_reaction(emoji)
-        return f"Added {emoji} reaction."
-    except discord.HTTPException:
-        return "Failed to add reaction (invalid emoji or permissions)."
+#     # Discord restricts AuditLogEntry.reason to 512 characters.
+#     reason = "".join(["Voxbot self-renamed", ": " if reason is not None else ". ", reason or ""])[:512]
 
+#     try:
+#         await primary_guild.me.edit(nick=display_name, reason=reason)
+#         return f"Changed Voxbot's home-guild display name to {display_name}."
 
-@soul_agent.tool
-async def change_own_display_name(
-    ctx: RunContext[DiscordDeps],
-    display_name: str,
-    reason: str | None = None,
-) -> str:
-    """
-    Change Voxbot's display name in the configured home guild.
-
-    This changes the bot's server nickname, not the global account username.
-    Choose any name that fits Voxbot's mood, as long as it is Discord-valid.
-    Names must be non-empty, 32 characters or fewer, and contain no control
-    characters or newlines.
-    """
-    # DEV NOTE:
-    #   This is a code smell because we're relying on the fact that we
-    #   only have 1 guild in scope.
-    primary_guild = next(g for g in ctx.deps.bot.guilds if g.id == settings.debug_guild)
-
-    # Discord restricts User.nick names to 32 characters.
-    display_name = display_name[:32]
-
-    # Discord restricts AuditLogEntry.reason to 512 characters.
-    reason = "".join(["Voxbot self-renamed", ": " if reason is not None else ". ", reason or ""])[:512]
-
-    try:
-        await primary_guild.me.edit(nick=display_name, reason=reason)
-        return f"Changed Voxbot's home-guild display name to {display_name}."
-
-    except discord.HTTPException as exc:
-        return f"Name not changed: Discord rejected the nickname update ({exc})."
+#     except discord.HTTPException as exc:
+#         return f"Name not changed: Discord rejected the nickname update ({exc})."
 
 
 @soul_agent.tool

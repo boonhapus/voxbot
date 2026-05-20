@@ -1,102 +1,124 @@
 from typing import Annotated, Literal
+import abc
+import asyncio
 
 import discord
 import pydantic
 import structlog
 
+from voxbot.bot import VoxBot
+from voxbot.settings import settings
+
 _LOGGER = structlog.get_logger(__name__)
 
 
-class BotAIAction(pydantic.BaseModel):
-    """The base class for any automated bot action."""
+# ── PROTOCOL ──────────────────────────────────────────────────────────────────────────
 
-    async def do(self, message: discord.Message) -> None:
+
+class BotAIAction(pydantic.BaseModel, abc.ABC):
+    """
+    The base class for any automated bot action.
+
+    The docstring is sent along with the prompt to the LLM. Strong docstrings
+    describe not only the functionality, but when to use the action.
+
+    pydantic.Field() members should also have their `description` parameter
+    sent as well.
+    """
+
+    @abc.abstractmethod
+    async def do(self, *, bot: VoxBot, message: discord.Message) -> None:
         """Override to allow the bot to take an action."""
-        pass
+        ...
+
+    async def run(self, *, bot: VoxBot, message: discord.Message) -> None:
+        """Runs the action."""
+        try:
+            await self.do(bot=bot, message=message)
+        except discord.HTTPException as exc:
+            assert hasattr(self, "kind"), "Protocol member `kind` not defined."
+            _LOGGER.warning("bot_ui_action_failed", error=str(exc), message=message.id, action=self.kind)
 
 
-class SilentAction(BotAIAction):
+# ── BOT ACTIONS ───────────────────────────────────────────────────────────────────────
+
+
+class Silent(BotAIAction):
+    """Choose not to respond to the message."""
+
     kind: Literal["silent"] = "silent"
 
-    async def do(self, message: discord.Message) -> None:
-        """Nothing."""
+    async def do(self, *, bot: VoxBot, message: discord.Message) -> None:
+        """Do nothing."""
         pass
 
 
-class TextAction(BotAIAction):
-    kind: Literal["text"] = "text"
+class Respond(BotAIAction):
+    """Respond with one or more messages."""
+
+    kind: Literal["respond"] = "respond"
     delivery: Literal["channel", "reply"] = "channel"
     content: list[str] = pydantic.Field(default_factory=list)
 
     @pydantic.field_validator("content")
     @classmethod
     def _strip_empty_messages(cls, content: list[str]) -> list[str]:
-        return [message.strip() for message in content if message.strip()][:3]
+        return [message.strip() for message in content if message.strip()]
 
-    async def do(self, message: discord.Message) -> None:
+    async def do(self, *, bot: VoxBot, message: discord.Message) -> None:
         """Send a message back."""
-        for idx, content in enumerate(self.content):
-            if idx == 0 and self.delivery == "reply":
-                await message.reply(content, mention_author=False)
-            else:
-                await message.channel.send(content)
+        TYPING_SPEED_WPM = 90
+
+        async with message.channel.typing():
+            for idx, content in enumerate(self.content):
+                n_words = len(content.split(" "))
+
+                # SIMULATE TYPING
+                await asyncio.sleep(n_words * TYPING_SPEED_WPM * 60)
+
+                if idx == 0 and self.delivery == "reply":
+                    await message.reply(content, mention_author=False)
+                else:
+                    await message.channel.send(content)
 
 
-class ReactAction(BotAIAction):
+class React(BotAIAction):
+    """Add or remove an emoji reaction to the message."""
+
     kind: Literal["react"] = "react"
     emoji: str
+    mode: Literal["add", "remove"] = "add"
 
     @pydantic.field_validator("emoji")
     @classmethod
     def _strip_emoji(cls, emoji: str) -> str:
-        emoji = emoji.strip()
-        if not emoji:
+        if not (emoji := emoji.strip()):
             msg = "emoji cannot be empty"
             raise ValueError(msg)
 
         return emoji
 
-    async def do(self, message: discord.Message) -> None:
-        await message.add_reaction(self.emoji)
+    async def do(self, bot: VoxBot, message: discord.Message) -> None:
+        try:
+            if self.mode == "add":
+                await message.add_reaction(self.emoji)
+            else:
+                await message.remove_reaction(self.emoji, member=bot.me)
+        except discord.NotFound:
+            pass
 
 
-class ThreadAction(BotAIAction):
-    kind: Literal["thread"] = "thread"
-    title: str = "Side thread"
-    content: list[str] = pydantic.Field(default_factory=list)
+class RenameSelf(BotAIAction):
+    """Change your display name."""
 
-    @pydantic.field_validator("title")
-    @classmethod
-    def _strip_title(cls, title: str) -> str:
-        title = " ".join(title.strip().split())
-        return title[:100] or "Side thread"
+    kind: Literal["rename_self"] = "rename_self"
+    name: str = pydantic.Field(max_length=32)
 
-    @pydantic.field_validator("content")
-    @classmethod
-    def _strip_empty_messages(cls, content: list[str]) -> list[str]:
-        return [message.strip() for message in content if message.strip()][:3]
-
-    async def do(self, message: discord.Message) -> None:
-        if not self.content:
-            return
-
-        if message.channel.guild is None:
-            await TextAction(content=self.content).do(message)
-            return
-
-        if isinstance(message.channel, discord.Thread):
-            thread = message.channel
-        else:
-            try:
-                thread = await message.create_thread(name=self.title)
-            except discord.HTTPException as exc:
-                _LOGGER.warning("thread_create_failed", error=str(exc), title=self.title, message_id=message.id)
-                await TextAction(content=self.content).do(message)
-                return
-
-        for content in self.content:
-            await thread.send(content)
+    async def do(self, *, bot: VoxBot, message: discord.Message) -> None:
+        guild = bot.get_guild(settings.debug_guild) if message.guild is None else message.guild
+        assert guild is not None, "Guild cannot be None."
+        await guild.me.edit(nick=self.name, reason=f"VoxBot renamed themself as a result of {message.id}")
 
 
-type _BotAIAction = SilentAction | TextAction | ReactAction | ThreadAction
+type _BotAIAction = Silent | Respond | React | RenameSelf
 type BotAIActionT = Annotated[_BotAIAction, pydantic.Field(discriminator="kind")]
