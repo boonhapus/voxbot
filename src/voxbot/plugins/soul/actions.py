@@ -33,10 +33,12 @@ class BotAIAction(pydantic.BaseModel, abc.ABC):
 
     async def run(self, *, bot: VoxBot, message: discord.Message) -> None:
         """Runs the action."""
+        assert hasattr(self, "kind"), "Protocol member `kind` not defined."
+
         try:
+            _LOGGER.info("bot_ui_action_chosen", action=self.kind)
             await self.do(bot=bot, message=message)
         except discord.HTTPException as exc:
-            assert hasattr(self, "kind"), "Protocol member `kind` not defined."
             _LOGGER.warning("bot_ui_action_failed", error=str(exc), message=message.id, action=self.kind)
 
 
